@@ -10,14 +10,24 @@ from dataclasses import replace
 from pathlib import Path
 
 from biblio_search import __version__
+from biblio_search.check import QuestionCheck, apply_check, check_question, scope_note
 from biblio_search.eutils import MAX_RETMAX, EutilsClient, EutilsConfig, EutilsError
-from biblio_search.models import ArticleSummary, QuestionError, StrategyOptions
+from biblio_search.mesh import MeshThesaurus
+from biblio_search.models import (
+    ArticleSummary,
+    QuestionError,
+    StrategyOptions,
+    StructuredQuestion,
+    TermCheck,
+    TermStatus,
+)
 from biblio_search.pipeline import SearchReport, run_search
 from biblio_search.protocols import QueryDialect
 from biblio_search.pubmed_query import PubMedDialect
 from biblio_search.question_file import load_question
 
 DIALECTS: dict[str, QueryDialect] = {PubMedDialect.name: PubMedDialect()}
+VOCABULARY_LABELS = {MeshThesaurus.name: "MeSH"}
 
 
 def _max_records(value: str) -> int:
@@ -62,6 +72,15 @@ def _build_parser() -> argparse.ArgumentParser:
     search.add_argument(
         "--email", help="contact email sent to NCBI (default: NCBI_EMAIL environment variable)"
     )
+
+    check = commands.add_parser(
+        "check",
+        parents=[question],
+        help="confirm the MeSH headings of a question and print the corrected equation",
+    )
+    check.add_argument(
+        "--email", help="contact email sent to NCBI (default: NCBI_EMAIL environment variable)"
+    )
     return parser
 
 
@@ -96,6 +115,49 @@ def format_report(report: SearchReport) -> str:
     return "\n".join(lines)
 
 
+def format_term_check(check: TermCheck) -> str:
+    where = f"[{check.condition}]"
+    if check.entry is None:
+        return f"  not found   {check.term.text} {where}: searched as free text instead"
+    heading = f"{check.entry.name} ({check.entry.identifier})"
+    if check.status is TermStatus.ENTRY_TERM:
+        line = f"  entry term  {check.term.text} -> {heading} {where}"
+    else:
+        line = f"  ok          {heading} {where}"
+    note = scope_note(check)
+    return f"{line}\n              {note}" if note else line
+
+
+def format_check(result: QuestionCheck, equation: str) -> str:
+    checks = result.checks
+    label = VOCABULARY_LABELS.get(result.vocabulary, result.vocabulary)
+    lines = [f"{label} check of {len(checks)} controlled terms"]
+    if not checks:
+        lines.append("  (the question has no controlled terms)")
+    lines += [format_term_check(c) for c in checks]
+    suggested = [item for item in result.conditions if item.suggested_synonyms]
+    if suggested:
+        lines += ["", "Synonyms you could add as free text:"]
+        lines += [
+            f"  {item.condition.label}: {', '.join(item.suggested_synonyms)}" for item in suggested
+        ]
+    lines += ["", f"Equation after the check: {equation}"]
+    return "\n".join(lines)
+
+
+async def _check(
+    question: StructuredQuestion, config: EutilsConfig
+) -> tuple[QuestionCheck, StructuredQuestion]:
+    async with EutilsClient(config) as client:
+        result = await check_question(question, MeshThesaurus(client))
+    return result, apply_check(question, result)
+
+
+def _config(args: argparse.Namespace) -> EutilsConfig:
+    config = EutilsConfig.from_env()
+    return replace(config, email=args.email) if args.email else config
+
+
 async def _search(args: argparse.Namespace, config: EutilsConfig) -> SearchReport:
     question, file_options = load_question(args.question_file)
     async with EutilsClient(config) as client:
@@ -115,10 +177,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             question, file_options = load_question(args.question_file)
             print(DIALECTS[args.dialect].render(question, _merge_options(file_options, args)))
             return 0
-        config = EutilsConfig.from_env()
-        if args.email:
-            config = replace(config, email=args.email)
-        print(format_report(asyncio.run(_search(args, config))))
+        if args.command == "check":
+            question, file_options = load_question(args.question_file)
+            result, fixed = asyncio.run(_check(question, _config(args)))
+            equation = PubMedDialect().render(fixed, _merge_options(file_options, args))
+            print(format_check(result, equation))
+            return 0
+        print(format_report(asyncio.run(_search(args, _config(args)))))
         return 0
     except QuestionError as exc:
         print(f"biblio-search: {exc}", file=sys.stderr)
