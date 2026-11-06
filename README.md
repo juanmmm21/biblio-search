@@ -7,6 +7,12 @@ decompose the question, map every concept to controlled vocabulary and free text
 term with the right field, and assemble everything into a single boolean equation whose
 sensitivity and specificity you can tune on purpose instead of by trial and error.
 
+Everything happens in a local web page: write the question, watch the equation, the logic
+grid and the chosen databases update as you type, check the headings against MeSH and run the
+search with live progress. The same features are available from the command line.
+
+![Writing a question: the PubMed equation, the MeSH check and Del Pino's logic grid update as you type](docs/screenshots/strategy.png)
+
 ## What problem it solves
 
 Writing a good PubMed search by hand is error prone. AND and OR are evaluated left to right,
@@ -81,8 +87,18 @@ University of Jaén) in *"Cómo aprender (y enseñar) a realizar búsquedas en C
   autouse guard makes any test that opens a socket fail.
 - **Dialects behind a protocol.** Query generation sits behind a small `QueryDialect`
   interface, so other databases can get their own syntax without touching the model.
-- **Strict typing, one runtime dependency.** Frozen dataclasses and enums, `mypy --strict`
-  on sources and tests, and only `httpx` beyond the standard library.
+- **A local web interface without a build step.** FastAPI serves a single page written in
+  plain HTML, CSS and JavaScript, so `pip install` is all it takes. The page draws exactly
+  what the CLI computes (same equations, same reasons), and searches stream their progress
+  as Server-Sent Events: equation sent, count received, records listed.
+- **Local means local.** The server binds to `127.0.0.1` only and also refuses foreign
+  `Host` headers (DNS rebinding), foreign `Origin` headers and non-JSON bodies, so other
+  websites open in the same browser cannot drive it. All user text is rendered as text,
+  never as HTML.
+- **Strict typing, few dependencies.** Frozen dataclasses and enums, `mypy --strict` on
+  sources and tests; beyond the standard library, `httpx` for NCBI and FastAPI with uvicorn
+  for the web interface. Question files are read with `tomllib` and written back by a small
+  serializer of their own.
 
 ## Architecture
 
@@ -98,8 +114,14 @@ biblio-search/
 │   ├── mesh.py           # MeSH lookups through E-utilities (db=mesh)
 │   ├── check.py          # heading checks, synonym suggestions, unknown terms to free text
 │   ├── selection.py      # rule-based database choice with reasons, manual override
-│   ├── pipeline.py       # question -> equation -> search -> records to screen
-│   └── __main__.py       # command line interface (build, check, databases, search)
+│   ├── catalog.py        # databases, vocabularies and labels shared by the CLI and the web
+│   ├── pipeline.py       # question -> equation -> search -> records, step by step
+│   ├── web/
+│   │   ├── app.py        # FastAPI app: preview, check, import/export, SSE search
+│   │   ├── views.py      # JSON views of questions, selections, counts and records
+│   │   ├── server.py     # binds 127.0.0.1 and opens the browser
+│   │   └── static/       # the page: HTML, CSS and JavaScript, no build step
+│   └── __main__.py       # command line interface (ui, build, check, databases, search)
 ├── examples/
 │   ├── caregiver-burden.toml       # worked example from Del Pino (2017)
 │   └── peer-tutoring-reading.toml  # education question with free concepts and ERIC terms
@@ -119,6 +141,31 @@ pip install -e .
 ```
 
 ## Usage
+
+### The web interface
+
+```bash
+biblio-search ui                                  # empty question
+biblio-search ui examples/caregiver-burden.toml   # open a question file
+```
+
+The page opens in your browser on a free port of `127.0.0.1` (`--port` to fix it,
+`--no-browser` to just print the address). Nobody else on the network can reach it.
+
+- **Write the question** as SPC, PICO or free concepts. Every condition holds its terms:
+  MeSH or ERIC headings with their scope, and free text with its field.
+- **Watch the strategy take shape**: the highlighted equation with a copy button, Del Pino's
+  logic grid (one row per condition, OR inside a row, AND between rows, exclusions with NOT),
+  the chosen databases with the reasons, and the question tree.
+- **Check the MeSH headings**: each one is confirmed, corrected or flagged, with suggested
+  synonyms you can add with a click and a button that applies the corrections.
+- **Search** and follow each step live, then read PubMed's translation of the equation and
+  the first records, with links to PubMed and the DOI.
+- **Import and export** the question as a TOML file, the same format the CLI reads.
+
+![Live search: each step as it happens, the record count, how PubMed read the equation and the records to screen](docs/screenshots/search.png)
+
+### Question files and the command line
 
 Describe the question in a TOML file. This is the worked example from Del Pino's article:
 *What is the relationship between burden and anxiety or depression in family caregivers of
@@ -398,6 +445,11 @@ The test suite never touches the network: NCBI responses are recorded under
 - **A heading with commas is not repeated as free text**: headings such as
   *Aged, 80 and over* have no natural free-text form; add the synonyms you want under `free`.
 
+- **`cannot start the web interface: Address already in use`**: another program uses the
+  port given with `--port`. Leave `--port` out to get any free port.
+- **`Not valid yet: ...` above the equation in the web interface**: the question is
+  incomplete (for example a condition without terms or a component without a description).
+  The message names the field; the last valid preview stays visible, dimmed.
 - **`none of the chosen databases can be searched yet`**: the question was routed to
   databases biblio-search cannot query yet (an education question goes to ERIC and
   OpenAlex). Add `--database pubmed` to search PubMed with the same equation.
