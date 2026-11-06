@@ -1,0 +1,23 @@
+{
+  "header": {
+    "type": "esearch",
+    "version": "0.3"
+  },
+  "esearchresult": {
+    "count": "0",
+    "retmax": "0",
+    "retstart": "0",
+    "idlist": [],
+    "translationset": [],
+    "querytranslation": "(\"Qwzxvplorkt\"[MeSH Terms])",
+    "warninglist": {
+      "phrasesignored": [],
+      "quotedphrasesnotfound": [
+        "\"Qwzxvplorkt\"[MeSH Terms]"
+      ],
+      "outputmessages": [
+        "No items found."
+      ]
+    }
+  }
+}

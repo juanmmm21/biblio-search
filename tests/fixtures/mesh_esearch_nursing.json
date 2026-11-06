@@ -1,0 +1,26 @@
+{
+  "header": {
+    "type": "esearch",
+    "version": "0.3"
+  },
+  "esearchresult": {
+    "count": "2",
+    "retmax": "2",
+    "retstart": "0",
+    "idlist": [
+      "81000451",
+      "68009729"
+    ],
+    "translationset": [],
+    "translationstack": [
+      {
+        "term": "\"Nursing\"[MeSH Terms]",
+        "field": "MeSH Terms",
+        "count": "2",
+        "explode": "N"
+      },
+      "GROUP"
+    ],
+    "querytranslation": "\"Nursing\"[MeSH Terms]"
+  }
+}

@@ -1,0 +1,397 @@
+{
+  "header": {
+    "type": "esummary",
+    "version": "0.3"
+  },
+  "result": {
+    "uids": [
+      "68001007",
+      "68003863",
+      "68017028",
+      "68000368",
+      "68000369",
+      "81000451",
+      "68009729"
+    ],
+    "68001007": {
+      "uid": "68001007",
+      "ds_yearintroduced": "",
+      "ds_scopenote": "Feelings or emotions of dread, apprehension, and impending disaster but not disabling as with ANXIETY DISORDERS.",
+      "ds_registrynumber": "",
+      "ds_headingmappedto": "",
+      "ds_meshterms": [
+        "Anxiety",
+        "Angst",
+        "Nervousness",
+        "Hypervigilance",
+        "Social Anxiety",
+        "Anxieties, Social",
+        "Anxiety, Social",
+        "Social Anxieties",
+        "Anxiousness"
+      ],
+      "ds_subheading": [
+        "blood",
+        "cerebrospinal fluid",
+        "chemically induced",
+        "classification",
+        "complications",
+        "diagnosis",
+        "diagnostic imaging",
+        "diet therapy",
+        "drug therapy",
+        "economics",
+        "enzymology",
+        "epidemiology",
+        "ethnology",
+        "etiology",
+        "genetics",
+        "history",
+        "immunology",
+        "metabolism",
+        "microbiology",
+        "mortality",
+        "nursing",
+        "parasitology",
+        "pathology",
+        "physiopathology",
+        "prevention and control",
+        "psychology",
+        "rehabilitation",
+        "surgery",
+        "therapy",
+        "urine",
+        "virology"
+      ],
+      "ds_papx": [],
+      "ds_previousindexing": [],
+      "ds_seerelated": [
+        "68001008",
+        "68014151",
+        "2016799"
+      ],
+      "ds_palist": [],
+      "ds_idxlinks": [
+        {
+          "parent": 68004644,
+          "treenum": "F01.470.132",
+          "children": [
+            "68001009",
+            "68058443",
+            "2108208",
+            "68016854",
+            "68060805"
+          ]
+        }
+      ],
+      "ds_entrydate": "1/01/01 00:00",
+      "ds_revisiondate": "1/01/01 00:00",
+      "ds_headingmappedtolist": [],
+      "ds_recordtype": "descriptor",
+      "ds_meshui": "D001007"
+    },
+    "68003863": {
+      "uid": "68003863",
+      "ds_yearintroduced": "",
+      "ds_scopenote": "Depressive states usually of moderate intensity in contrast with MAJOR DEPRESSIVE DISORDER present in neurotic and psychotic disorders.",
+      "ds_registrynumber": "",
+      "ds_headingmappedto": "",
+      "ds_meshterms": [
+        "Depression",
+        "Depressive Symptoms",
+        "Depressive Symptom",
+        "Symptom, Depressive",
+        "Emotional Depression",
+        "Depression, Emotional"
+      ],
+      "ds_subheading": [
+        "blood",
+        "cerebrospinal fluid",
+        "chemically induced",
+        "classification",
+        "complications",
+        "diagnosis",
+        "diagnostic imaging",
+        "diet therapy",
+        "drug therapy",
+        "economics",
+        "enzymology",
+        "epidemiology",
+        "ethnology",
+        "etiology",
+        "genetics",
+        "history",
+        "immunology",
+        "metabolism",
+        "microbiology",
+        "mortality",
+        "nursing",
+        "parasitology",
+        "pathology",
+        "physiopathology",
+        "prevention and control",
+        "psychology",
+        "rehabilitation",
+        "surgery",
+        "therapy",
+        "urine",
+        "virology"
+      ],
+      "ds_papx": [],
+      "ds_previousindexing": [],
+      "ds_seerelated": [
+        "68000928"
+      ],
+      "ds_palist": [],
+      "ds_idxlinks": [
+        {
+          "parent": 68001526,
+          "treenum": "F01.145.126.350",
+          "children": []
+        },
+        {
+          "parent": 68004644,
+          "treenum": "F01.470.282",
+          "children": []
+        }
+      ],
+      "ds_entrydate": "1/01/01 00:00",
+      "ds_revisiondate": "1/01/01 00:00",
+      "ds_headingmappedtolist": [],
+      "ds_recordtype": "descriptor",
+      "ds_meshui": "D003863"
+    },
+    "68017028": {
+      "uid": "68017028",
+      "ds_yearintroduced": "1992",
+      "ds_scopenote": "Persons who provide care to those who need supervision or assistance in illness or disability. They may provide the care in the home, in a hospital, or in an institution. Although caregivers include trained medical, nursing, and other health personnel, the concept also refers to parents, spouses, or other family members, friends, members of the clergy, teachers, social workers, fellow patients.",
+      "ds_registrynumber": "",
+      "ds_headingmappedto": "",
+      "ds_meshterms": [
+        "Caregivers",
+        "Caregiver",
+        "Care Givers",
+        "Care Giver",
+        "Carers",
+        "Carer",
+        "Family Caregivers",
+        "Caregiver, Family",
+        "Caregivers, Family",
+        "Family Caregiver",
+        "Spouse Caregivers",
+        "Caregiver, Spouse",
+        "Caregivers, Spouse",
+        "Spouse Caregiver",
+        "Informal Caregivers",
+        "Caregiver, Informal",
+        "Caregivers, Informal",
+        "Informal Caregiver"
+      ],
+      "ds_subheading": [
+        "classification",
+        "economics",
+        "education",
+        "ethics",
+        "history",
+        "legislation and jurisprudence",
+        "organization and administration",
+        "psychology",
+        "standards",
+        "statistics and numerical data",
+        "supply and distribution",
+        "trends"
+      ],
+      "ds_papx": [],
+      "ds_previousindexing": [],
+      "ds_seerelated": [],
+      "ds_palist": [],
+      "ds_idxlinks": [
+        {
+          "parent": 68009272,
+          "treenum": "M01.085",
+          "children": []
+        },
+        {
+          "parent": 68006282,
+          "treenum": "M01.526.485.200",
+          "children": []
+        },
+        {
+          "parent": 68006282,
+          "treenum": "N02.360.200",
+          "children": []
+        }
+      ],
+      "ds_entrydate": "1/01/01 00:00",
+      "ds_revisiondate": "1/01/01 00:00",
+      "ds_headingmappedtolist": [],
+      "ds_recordtype": "descriptor",
+      "ds_meshui": "D017028"
+    },
+    "68000368": {
+      "uid": "68000368",
+      "ds_yearintroduced": "1966",
+      "ds_scopenote": "A person 65 years of age or older. For a person older than 79 years, AGED, 80 AND OVER is available.",
+      "ds_registrynumber": "",
+      "ds_headingmappedto": "",
+      "ds_meshterms": [
+        "Aged",
+        "Elderly"
+      ],
+      "ds_subheading": [
+        "physiology",
+        "psychology",
+        "statistics and numerical data"
+      ],
+      "ds_papx": [],
+      "ds_previousindexing": [],
+      "ds_seerelated": [
+        "68006299",
+        "68006707",
+        "68010415",
+        "68012179",
+        "68016852"
+      ],
+      "ds_palist": [],
+      "ds_idxlinks": [
+        {
+          "parent": 68000328,
+          "treenum": "M01.060.116.100",
+          "children": [
+            "68000369",
+            "68016330"
+          ]
+        }
+      ],
+      "ds_entrydate": "1/01/01 00:00",
+      "ds_revisiondate": "1/01/01 00:00",
+      "ds_headingmappedtolist": [],
+      "ds_recordtype": "descriptor",
+      "ds_meshui": "D000368"
+    },
+    "68000369": {
+      "uid": "68000369",
+      "ds_yearintroduced": "1987",
+      "ds_scopenote": "Persons 80 years of age and older.",
+      "ds_registrynumber": "",
+      "ds_headingmappedto": "",
+      "ds_meshterms": [
+        "Aged, 80 and over",
+        "Oldest Old"
+      ],
+      "ds_subheading": [
+        "physiology",
+        "psychology",
+        "statistics and numerical data"
+      ],
+      "ds_papx": [],
+      "ds_previousindexing": [
+        "Aged (1966-1986)"
+      ],
+      "ds_seerelated": [],
+      "ds_palist": [],
+      "ds_idxlinks": [
+        {
+          "parent": 68000368,
+          "treenum": "M01.060.116.100.080",
+          "children": [
+            "2101056",
+            "2101093",
+            "2101057"
+          ]
+        }
+      ],
+      "ds_entrydate": "1/01/01 00:00",
+      "ds_revisiondate": "1/01/01 00:00",
+      "ds_headingmappedtolist": [],
+      "ds_recordtype": "descriptor",
+      "ds_meshui": "D000369"
+    },
+    "81000451": {
+      "uid": "81000451",
+      "ds_yearintroduced": "1966",
+      "ds_scopenote": "Used with diseases for nursing care and techniques in their management. It includes the nursing role in diagnostic, therapeutic, and preventive procedures.",
+      "ds_registrynumber": "",
+      "ds_headingmappedto": "",
+      "ds_meshterms": [
+        "nursing",
+        "nursing care",
+        "home care"
+      ],
+      "ds_subheading": [],
+      "ds_papx": [],
+      "ds_previousindexing": [],
+      "ds_seerelated": [],
+      "ds_palist": [],
+      "ds_idxlinks": [
+        {
+          "parent": 81000628,
+          "treenum": "Y11.030",
+          "children": []
+        }
+      ],
+      "ds_entrydate": "1/01/01 00:00",
+      "ds_revisiondate": "1/01/01 00:00",
+      "ds_headingmappedtolist": [],
+      "ds_recordtype": "qualifier",
+      "ds_meshui": "Q000451"
+    },
+    "68009729": {
+      "uid": "68009729",
+      "ds_yearintroduced": "",
+      "ds_scopenote": "The field of nursing care concerned with the promotion, maintenance, and restoration of health.",
+      "ds_registrynumber": "",
+      "ds_headingmappedto": "",
+      "ds_meshterms": [
+        "Nursing",
+        "Nursings"
+      ],
+      "ds_subheading": [
+        "classification",
+        "instrumentation",
+        "methods",
+        "organization and administration",
+        "standards",
+        "statistics and numerical data",
+        "trends"
+      ],
+      "ds_papx": [],
+      "ds_previousindexing": [],
+      "ds_seerelated": [
+        "68004471",
+        "68004506",
+        "68006676",
+        "68007884"
+      ],
+      "ds_palist": [],
+      "ds_idxlinks": [
+        {
+          "parent": 68006281,
+          "treenum": "H02.478",
+          "children": [
+            "68055318",
+            "68015399",
+            "68009742",
+            "68013041"
+          ]
+        },
+        {
+          "parent": 68011364,
+          "treenum": "N04.452.758.377",
+          "children": [
+            "68009744",
+            "68009745",
+            "68009818",
+            "68055817",
+            "68065099"
+          ]
+        }
+      ],
+      "ds_entrydate": "1/01/01 00:00",
+      "ds_revisiondate": "1/01/01 00:00",
+      "ds_headingmappedtolist": [],
+      "ds_recordtype": "descriptor",
+      "ds_meshui": "D009729"
+    }
+  }
+}

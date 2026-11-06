@@ -1,0 +1,25 @@
+{
+  "header": {
+    "type": "esearch",
+    "version": "0.3"
+  },
+  "esearchresult": {
+    "count": "1",
+    "retmax": "1",
+    "retstart": "0",
+    "idlist": [
+      "68000369"
+    ],
+    "translationset": [],
+    "translationstack": [
+      {
+        "term": "\"Aged, 80 and over\"[MeSH Terms]",
+        "field": "MeSH Terms",
+        "count": "1",
+        "explode": "N"
+      },
+      "GROUP"
+    ],
+    "querytranslation": "\"Aged, 80 and over\"[MeSH Terms]"
+  }
+}
