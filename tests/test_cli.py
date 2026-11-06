@@ -101,7 +101,7 @@ def test_search_rejects_out_of_range_max(capsys: pytest.CaptureFixture[str]) -> 
 
 
 def test_format_record_without_year_or_types() -> None:
-    record = ArticleSummary("1", "Title.", (), "Journal", None, None, ())
+    record = ArticleSummary("1", "Title.", (), "Journal", None, None, (), "https://x")
     assert format_record(12, record) == " 12. PMID 1 (n.d.) Title. | Journal"
 
 

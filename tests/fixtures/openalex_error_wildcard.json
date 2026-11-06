@@ -1,0 +1,1 @@
+{"error":"Invalid query parameters error.","message":"Wildcards (* or ?) do not work inside this quoted phrase: \"family caregiv*\". For a multi-word phrase use an adjacency phrase (\"smart* phone\") or proximity (\"smart phone*\"~3) as the whole search."}

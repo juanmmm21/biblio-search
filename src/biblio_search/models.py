@@ -110,6 +110,10 @@ class QuestionError(ValueError):
     """Raised when a structured question or one of its parts is not valid."""
 
 
+class DatabaseError(RuntimeError):
+    """Raised when a bibliographic database cannot be reached or rejects a request."""
+
+
 TRUNCATION = "*"
 _BOOLEAN_WORD = re.compile(r"\b(?:AND|OR|NOT)\b", re.IGNORECASE)
 # Las comillas y los corchetes rompen la sintaxis de PubMed: no hay forma de escaparlos.
@@ -311,15 +315,21 @@ class SearchResult:
 
 @dataclass(frozen=True, slots=True)
 class ArticleSummary:
-    """Bibliographic summary of a record, enough to screen it by title."""
+    """Bibliographic summary of a record, enough to screen it by title.
 
-    pmid: str
+    ``record_id`` is the identifier in the database that returned it (a PMID in PubMed, a
+    work id such as ``W2167987787`` in OpenAlex) and ``url`` its page there. ``doi`` is bare
+    (``10.1000/x``), without the ``https://doi.org/`` prefix.
+    """
+
+    record_id: str
     title: str
     authors: tuple[str, ...]
     journal: str
     year: int | None
     doi: str | None
     publication_types: tuple[str, ...]
+    url: str
 
 
 @dataclass(frozen=True, slots=True)

@@ -161,7 +161,9 @@ def _merge_options(file_options: StrategyOptions, args: argparse.Namespace) -> S
 def format_record(position: int, record: ArticleSummary) -> str:
     year = str(record.year) if record.year is not None else "n.d."
     types = f" [{', '.join(record.publication_types)}]" if record.publication_types else ""
-    return f"{position:>3}. PMID {record.pmid} ({year}) {record.title} | {record.journal}{types}"
+    return (
+        f"{position:>3}. PMID {record.record_id} ({year}) {record.title} | {record.journal}{types}"
+    )
 
 
 def format_report(report: SearchReport) -> str:

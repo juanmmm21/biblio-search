@@ -1,4 +1,4 @@
-"""End-to-end flow: structured question -> equation -> PubMed results to screen."""
+"""End-to-end flow: structured question -> equation -> records of one database to screen."""
 
 from __future__ import annotations
 
@@ -11,13 +11,13 @@ from biblio_search.protocols import QueryDialect
 
 
 class SearchBackend(Protocol):
-    """What the pipeline needs from a database client (EutilsClient satisfies it)."""
+    """What the pipeline needs from a database client (EutilsClient, OpenAlexClient)."""
 
     async def search(self, term: str, *, retmax: int = 20, retstart: int = 0) -> SearchResult:
         """Run ``term`` and return the count and the first ``retmax`` record ids."""
 
-    async def summaries(self, pmids: Sequence[str]) -> tuple[ArticleSummary, ...]:
-        """Fetch the summaries of the given records."""
+    async def summaries(self, ids: Sequence[str], /) -> tuple[ArticleSummary, ...]:
+        """Fetch the summaries of the given records, in the same order."""
 
 
 @dataclass(frozen=True, slots=True)

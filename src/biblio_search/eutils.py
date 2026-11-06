@@ -17,10 +17,11 @@ from typing import Self
 
 import httpx
 
-from biblio_search.models import ArticleSummary, SearchResult
+from biblio_search.models import ArticleSummary, DatabaseError, SearchResult
 from biblio_search.ratelimit import RateLimiter
 
 DEFAULT_BASE_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
+PUBMED_URL = "https://pubmed.ncbi.nlm.nih.gov/"
 # esearch no devuelve más de 10 000 PMIDs por petición; más allá hay que paginar.
 MAX_RETMAX = 10_000
 # NCBI recomienda no pasar de ~200 UIDs por petición GET de esummary.
@@ -29,7 +30,7 @@ _PMID = re.compile(r"^\d+$")
 _RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
 
 
-class EutilsError(RuntimeError):
+class EutilsError(DatabaseError):
     """Raised when NCBI cannot be reached or answers with an error."""
 
 
@@ -160,13 +161,14 @@ def parse_summaries(payload: Mapping[str, object]) -> tuple[ArticleSummary, ...]
             raise EutilsError(f"PubMed has no summary for PMID {uid}: {error}")
         summaries.append(
             ArticleSummary(
-                pmid=uid,
+                record_id=uid,
                 title=_as_str(record.get("title")).strip(),
                 authors=_authors(record),
                 journal=_as_str(record.get("fulljournalname")) or _as_str(record.get("source")),
                 year=_year(record),
                 doi=_doi(record),
                 publication_types=_as_strings(record.get("pubtype")),
+                url=f"{PUBMED_URL}{uid}/",
             )
         )
     return tuple(summaries)

@@ -125,14 +125,14 @@ def count_view(database: str, result: SearchResult) -> JsonDict:
 
 def record_view(record: ArticleSummary) -> JsonDict:
     return {
-        "id": record.pmid,
+        "id": record.record_id,
         "title": record.title,
         "authors": list(record.authors),
         "journal": record.journal,
         "year": record.year,
         "doi": record.doi,
         "publication_types": list(record.publication_types),
-        "url": f"https://pubmed.ncbi.nlm.nih.gov/{record.pmid}/",
+        "url": record.url,
     }
 
 

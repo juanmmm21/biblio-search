@@ -50,7 +50,7 @@ def test_parse_search_raises_on_error_field() -> None:
 
 def test_parse_summaries_fixture() -> None:
     records = parse_summaries(load_fixture("esummary_caregiver.json"))
-    assert [r.pmid for r in records] == ["42970524", "42956697", "42919807"]
+    assert [r.record_id for r in records] == ["42970524", "42956697", "42919807"]
     first = records[0]
     assert first.title == "Music-Based Interventions for People Living With Dementia."
     assert first.authors == ("Mandolang E", "Brush P", "Petrovsky DV")
@@ -58,6 +58,7 @@ def test_parse_summaries_fixture() -> None:
     assert first.year == 2026
     assert first.doi == "10.1097/NHH.0000000000001471"
     assert first.publication_types == ("Journal Article", "Review")
+    assert first.url == "https://pubmed.ncbi.nlm.nih.gov/42970524/"
 
 
 def test_parse_summaries_raises_on_missing_record() -> None:
