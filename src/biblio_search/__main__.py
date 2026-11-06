@@ -31,7 +31,7 @@ from biblio_search.models import (
     TermStatus,
 )
 from biblio_search.pipeline import SearchReport, run_search
-from biblio_search.question_file import load_question
+from biblio_search.question_file import load_question, question_to_data
 from biblio_search.selection import DatabaseSelection, SelectionMode, select_databases
 
 
@@ -106,7 +106,46 @@ def _build_parser() -> argparse.ArgumentParser:
     check.add_argument(
         "--email", help="contact email sent to NCBI (default: NCBI_EMAIL environment variable)"
     )
+    ui = commands.add_parser(
+        "ui", help="open the web interface in the browser (local only, nobody else can reach it)"
+    )
+    ui.add_argument("question_file", type=Path, nargs="?", help="TOML question to open (optional)")
+    ui.add_argument(
+        "--port", type=_port, default=0, help="port on 127.0.0.1 (default: any free port)"
+    )
+    ui.add_argument(
+        "--no-browser", action="store_true", help="print the address instead of opening it"
+    )
+    ui.add_argument(
+        "--email", help="contact email sent to NCBI (default: NCBI_EMAIL environment variable)"
+    )
     return parser
+
+
+def _port(value: str) -> int:
+    number = int(value)
+    if not 0 <= number <= 65535:
+        raise argparse.ArgumentTypeError("must be between 0 and 65535")
+    return number
+
+
+def _ui(args: argparse.Namespace) -> int:
+    # Importación tardía: la CLI de siempre no carga FastAPI ni uvicorn si no hace falta.
+    from biblio_search.web import serve
+
+    initial = None
+    if args.question_file is not None:
+        initial = question_to_data(*load_question(args.question_file))
+    try:
+        serve(
+            _config(args),
+            port=args.port,
+            open_browser=not args.no_browser,
+            initial_question=initial,
+        )
+    except OSError as exc:
+        raise ValueError(f"cannot start the web interface: {exc.strerror or exc}") from exc
+    return 0
 
 
 def _merge_options(file_options: StrategyOptions, args: argparse.Namespace) -> StrategyOptions:
@@ -237,6 +276,8 @@ async def _search(
 def main(argv: Sequence[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     try:
+        if args.command == "ui":
+            return _ui(args)
         question, file_options = load_question(args.question_file)
         options = _merge_options(file_options, args)
         if args.command == "build":
