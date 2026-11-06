@@ -223,3 +223,33 @@ class StrategyOptions:
 
     repeat_controlled_as_free: bool = False
     free_text_unindexed_only: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class SearchResult:
+    """Outcome of running an equation against a database.
+
+    ``query_translation`` is how the database actually understood the equation: PubMed maps
+    and silently drops parts of a query, so it must be shown next to the count.
+    ``not_found`` lists terms or fields the database did not recognise and ``warnings``
+    any other message it returned (e.g. ignored phrases or stray syntax).
+    """
+
+    count: int
+    ids: tuple[str, ...]
+    query_translation: str
+    not_found: tuple[str, ...] = ()
+    warnings: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ArticleSummary:
+    """Bibliographic summary of a record, enough to screen it by title."""
+
+    pmid: str
+    title: str
+    authors: tuple[str, ...]
+    journal: str
+    year: int | None
+    doi: str | None
+    publication_types: tuple[str, ...]
