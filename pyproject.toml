@@ -11,7 +11,7 @@ license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "juanmmm21", email = "martoscuevasjuan@gmail.com" }]
 requires-python = ">=3.11"
-dependencies = []
+dependencies = ["httpx>=0.28,<1"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
