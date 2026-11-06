@@ -19,6 +19,7 @@ from biblio_search.models import (
     TermKind,
     TermStatus,
     ThesaurusEntry,
+    Vocabulary,
 )
 from biblio_search.pubmed_query import PubMedDialect
 
@@ -154,3 +155,31 @@ def test_term_check_requires_entry_unless_not_found() -> None:
         TermCheck("c", Term.controlled("X"), TermStatus.VALID)
     with pytest.raises(ValueError):
         TermCheck("c", Term.controlled("X"), TermStatus.NOT_FOUND, ANXIETY)
+
+
+def test_only_terms_of_the_thesaurus_vocabulary_are_checked() -> None:
+    eric = Term.controlled("Anxiety", vocabulary=Vocabulary.ERIC)
+    question = StructuredQuestion(
+        "q",
+        QuestionFormat.CONCEPTS,
+        (
+            Component(
+                ComponentRole.CONCEPT,
+                "anxiety",
+                (Condition("anxiety", (eric, Term.controlled("Carers"), Term.free("anxi*"))),),
+            ),
+        ),
+        exclusions=(
+            Condition("tests", (Term.controlled("Test Anxiety", vocabulary=Vocabulary.ERIC),)),
+        ),
+    )
+    thesaurus = FakeThesaurus(THESAURUS)
+    result = _check(question, thesaurus)
+    assert thesaurus.asked == [["Carers"]]
+    assert [c.term.text for c in result.checks] == ["Carers"]
+    assert result.unchecked == (eric, Term.controlled("Test Anxiety", vocabulary=Vocabulary.ERIC))
+
+    fixed = apply_check(question, result)
+    # El descriptor ERIC homónimo de uno MeSH no se toca: solo se corrige lo comprobado.
+    assert fixed.conditions[0].terms == (eric, Term.controlled("Caregivers"), Term.free("anxi*"))
+    assert fixed.exclusions == question.exclusions

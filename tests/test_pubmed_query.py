@@ -14,12 +14,20 @@ from biblio_search.models import (
     StrategyOptions,
     StructuredQuestion,
     Term,
+    Vocabulary,
 )
 from biblio_search.protocols import QueryDialect
-from biblio_search.pubmed_query import PubMedDialect, expand_condition, render_term
+from biblio_search.pubmed_query import (
+    PubMedDialect,
+    expand_condition,
+    foreign_terms,
+    localize_condition,
+    render_term,
+)
 from biblio_search.question_file import load_question
 
-EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "caregiver-burden.toml"
+EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
+EXAMPLE = EXAMPLES / "caregiver-burden.toml"
 
 
 @pytest.mark.parametrize(
@@ -118,3 +126,52 @@ def test_del_pino_example() -> None:
 def test_pubmed_dialect_satisfies_protocol() -> None:
     dialect: QueryDialect = PubMedDialect()
     assert dialect.name == "pubmed"
+
+
+def _eric(text: str) -> Term:
+    return Term.controlled(text, vocabulary=Vocabulary.ERIC)
+
+
+def test_foreign_headings_become_free_text_unless_covered() -> None:
+    condition = Condition(
+        "reading",
+        (
+            _eric("Reading Comprehension"),
+            _eric("Peer Teaching"),
+            Term.controlled("Comprehension"),
+            Term.free("reading comprehen*"),
+        ),
+    )
+    local = localize_condition(condition, PubMedDialect.vocabularies)
+    assert local.terms == (
+        Term.free("peer teaching"),
+        Term.controlled("Comprehension"),
+        Term.free("reading comprehen*"),
+    )
+
+
+def test_foreign_headings_repeated_across_vocabularies_are_searched_once() -> None:
+    condition = Condition("x", (_eric("Tutoring"), Term(text="Tutoring", kind=_eric("a").kind)))
+    assert condition.terms[1].vocabulary is Vocabulary.MESH
+    local = localize_condition(condition, frozenset())
+    assert local.terms == (Term.free("tutoring"),)
+
+
+def test_foreign_exclusions_and_terms_are_reported() -> None:
+    exclusion = Condition("adults", (_eric("Adult Students"),))
+    question = _question(BURDEN, exclusions=(exclusion,))
+    equation = PubMedDialect().render(question, StrategyOptions())
+    assert equation == "(burden*[tiab] OR overload*[tiab]) NOT (adult students[tiab])"
+    assert foreign_terms(question, PubMedDialect.vocabularies) == (_eric("Adult Students"),)
+    assert foreign_terms(_question(ANXIETY), PubMedDialect.vocabularies) == ()
+
+
+def test_education_example_in_pubmed() -> None:
+    question, options = load_question(EXAMPLES / "peer-tutoring-reading.toml")
+    # «Reading Comprehension» y «Elementary School Students» ya los cubre el texto libre.
+    assert PubMedDialect().render(question, options) == (
+        '(peer teaching[tiab] OR "peer tutor*"[tiab] OR peer assisted learning[tiab]'
+        ' OR "cross age tutor*"[tiab])'
+        ' AND (reading comprehension[tiab] OR "reading skill*"[tiab])'
+        ' AND ("primary school*"[tiab] OR "elementary school*"[tiab])'
+    )
