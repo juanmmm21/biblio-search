@@ -13,12 +13,15 @@ from biblio_search.models import (
     ComponentRole,
     Condition,
     ControlledScope,
+    Database,
+    Discipline,
     FreeTextField,
     QuestionError,
     QuestionFormat,
     StrategyOptions,
     StructuredQuestion,
     Term,
+    Vocabulary,
 )
 
 
@@ -63,9 +66,11 @@ def _controlled_term(value: object, where: str) -> Term:
         return Term.controlled(value)
     table = _table(value, where)
     scope = table.get("scope", ControlledScope.HEADING.value)
+    vocabulary = table.get("vocabulary", Vocabulary.MESH.value)
     return Term.controlled(
         _string(table.get("term"), f"{where}.term"),
         _choice(ControlledScope, scope, f"{where}.scope"),
+        _choice(Vocabulary, vocabulary, f"{where}.vocabulary"),
     )
 
 
@@ -96,11 +101,15 @@ def _condition(value: object, where: str) -> Condition:
     )
 
 
-def _component(value: object, where: str) -> Component:
+def _component(value: object, where: str, question_format: QuestionFormat) -> Component:
     table = _table(value, where)
     conditions = _list(table.get("conditions", []), f"{where}.conditions")
+    # Con conceptos libres el rol es siempre el mismo: escribirlo en cada uno sobra.
+    default_role = (
+        ComponentRole.CONCEPT.value if question_format is QuestionFormat.CONCEPTS else None
+    )
     return Component(
-        role=_choice(ComponentRole, table.get("role"), f"{where}.role"),
+        role=_choice(ComponentRole, table.get("role", default_role), f"{where}.role"),
         description=_string(table.get("description"), f"{where}.description"),
         conditions=tuple(
             _condition(item, f"{where}.conditions[{i}]") for i, item in enumerate(conditions)
@@ -126,13 +135,23 @@ def _options(value: object) -> StrategyOptions:
 
 def parse_question(data: Mapping[str, object]) -> tuple[StructuredQuestion, StrategyOptions]:
     """Build a question and its strategy options from already parsed TOML data."""
+    question_format = _choice(QuestionFormat, data.get("format"), "format")
     components = _list(data.get("components"), "components")
     exclusions = _list(data.get("exclusions", []), "exclusions")
+    discipline = data.get("discipline")
+    databases = _list(data.get("databases", []), "databases")
     question = StructuredQuestion(
         text=_string(data.get("question"), "question"),
-        format=_choice(QuestionFormat, data.get("format"), "format"),
-        components=tuple(_component(item, f"components[{i}]") for i, item in enumerate(components)),
+        format=question_format,
+        components=tuple(
+            _component(item, f"components[{i}]", question_format)
+            for i, item in enumerate(components)
+        ),
         exclusions=tuple(_condition(item, f"exclusions[{i}]") for i, item in enumerate(exclusions)),
+        discipline=None if discipline is None else _choice(Discipline, discipline, "discipline"),
+        databases=tuple(
+            _choice(Database, item, f"databases[{i}]") for i, item in enumerate(databases)
+        ),
     )
     return question, _options(data.get("options", {}))
 

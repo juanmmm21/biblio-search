@@ -12,9 +12,9 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from biblio_search.eutils import SUMMARY_BATCH_SIZE, EutilsError, parse_search
-from biblio_search.models import ThesaurusEntry
+from biblio_search.models import ThesaurusEntry, Vocabulary
 
-VOCABULARY = "mesh"
+VOCABULARY = Vocabulary.MESH.value
 # Un texto casa con un descriptor y, como mucho, con un calificador del mismo nombre.
 _MAX_MATCHES = 20
 _FORBIDDEN_CHARS = frozenset('"[]')

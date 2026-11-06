@@ -1,7 +1,8 @@
 """Domain model of a structured search question.
 
 The model follows Rafael del Pino's method: a question is decomposed into components
-(SPC or PICO), every component holds one or more *conditions* that are joined with AND,
+(SPC or PICO for health questions, free concepts for any other discipline), every component
+holds one or more *conditions* that are joined with AND,
 and every condition holds the *terms* (controlled headings and free-text synonyms) that
 are joined with OR.
 """
@@ -18,6 +19,7 @@ class QuestionFormat(StrEnum):
 
     SPC = "spc"
     PICO = "pico"
+    CONCEPTS = "concepts"
 
 
 class ComponentRole(StrEnum):
@@ -29,6 +31,7 @@ class ComponentRole(StrEnum):
     INTERVENTION = "intervention"
     COMPARISON = "comparison"
     OUTCOME = "outcome"
+    CONCEPT = "concept"
 
 
 FORMAT_ROLES: dict[QuestionFormat, tuple[ComponentRole, ...]] = {
@@ -43,7 +46,38 @@ FORMAT_ROLES: dict[QuestionFormat, tuple[ComponentRole, ...]] = {
         ComponentRole.COMPARISON,
         ComponentRole.OUTCOME,
     ),
+    QuestionFormat.CONCEPTS: (ComponentRole.CONCEPT,),
 }
+
+# SPC y PICO fijan un orden y un único componente por rol; los conceptos libres no.
+REPEATABLE_ROLES = frozenset({ComponentRole.CONCEPT})
+
+
+class Discipline(StrEnum):
+    """Field of knowledge of a question, used to choose where to search."""
+
+    HEALTH = "health"
+    EDUCATION = "education"
+    PHYSICS = "physics"
+    MATHEMATICS = "mathematics"
+    COMPUTER_SCIENCE = "computer_science"
+    ECONOMICS = "economics"
+
+
+class Database(StrEnum):
+    """Free bibliographic databases a question can be searched in."""
+
+    PUBMED = "pubmed"
+    ERIC = "eric"
+    ARXIV = "arxiv"
+    OPENALEX = "openalex"
+
+
+class Vocabulary(StrEnum):
+    """Thesauri that controlled terms can come from."""
+
+    MESH = "mesh"
+    ERIC = "eric"
 
 
 class TermKind(StrEnum):
@@ -86,20 +120,27 @@ _FORBIDDEN_CHARS = frozenset('"[]')
 class Term:
     """A single search term.
 
-    Controlled terms are thesaurus headings (MeSH) and can be narrowed with ``scope``.
-    Free terms are author language and can be truncated with a trailing ``*``.
+    Controlled terms are thesaurus headings (MeSH unless ``vocabulary`` says otherwise) and
+    can be narrowed with ``scope``. Free terms are author language, belong to no vocabulary
+    and can be truncated with a trailing ``*``.
     """
 
     text: str
     kind: TermKind
     scope: ControlledScope = ControlledScope.HEADING
     free_field: FreeTextField = FreeTextField.TITLE_ABSTRACT
+    vocabulary: Vocabulary | None = None
 
     def __post_init__(self) -> None:
         stripped = " ".join(self.text.split())
         if not stripped:
             raise QuestionError("a term cannot be empty")
         object.__setattr__(self, "text", stripped)
+        if self.kind is TermKind.FREE and self.vocabulary is not None:
+            raise QuestionError(f"free term {stripped!r} cannot belong to a vocabulary")
+        if self.kind is TermKind.CONTROLLED and self.vocabulary is None:
+            # MeSH por defecto: así los ficheros anteriores a los vocabularios siguen valiendo.
+            object.__setattr__(self, "vocabulary", Vocabulary.MESH)
         bad = _FORBIDDEN_CHARS.intersection(stripped)
         if bad:
             raise QuestionError(f"term {stripped!r} contains forbidden characters: {sorted(bad)}")
@@ -113,8 +154,13 @@ class Term:
                 raise QuestionError("a truncated term needs a root before the asterisk")
 
     @classmethod
-    def controlled(cls, text: str, scope: ControlledScope = ControlledScope.HEADING) -> Term:
-        return cls(text=text, kind=TermKind.CONTROLLED, scope=scope)
+    def controlled(
+        cls,
+        text: str,
+        scope: ControlledScope = ControlledScope.HEADING,
+        vocabulary: Vocabulary = Vocabulary.MESH,
+    ) -> Term:
+        return cls(text=text, kind=TermKind.CONTROLLED, scope=scope, vocabulary=vocabulary)
 
     @classmethod
     def free(cls, text: str, free_field: FreeTextField = FreeTextField.TITLE_ABSTRACT) -> Term:
@@ -146,9 +192,9 @@ class Condition:
             raise QuestionError("a condition needs a label")
         if not self.terms:
             raise QuestionError(f"condition {self.label!r} has no terms")
-        seen: set[tuple[str, TermKind]] = set()
+        seen: set[tuple[str, TermKind, Vocabulary | None]] = set()
         for term in self.terms:
-            key = (term.text.casefold(), term.kind)
+            key = (term.text.casefold(), term.kind, term.vocabulary)
             if key in seen:
                 raise QuestionError(f"condition {self.label!r} repeats the term {term.text!r}")
             seen.add(key)
@@ -160,6 +206,10 @@ class Condition:
     @property
     def free_terms(self) -> tuple[Term, ...]:
         return tuple(t for t in self.terms if t.kind is TermKind.FREE)
+
+    def controlled_in(self, vocabulary: str) -> tuple[Term, ...]:
+        """Controlled terms that come from ``vocabulary``."""
+        return tuple(t for t in self.controlled_terms if t.vocabulary == vocabulary)
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,12 +231,18 @@ class Component:
 
 @dataclass(frozen=True, slots=True)
 class StructuredQuestion:
-    """A search question decomposed into the components of its format."""
+    """A search question decomposed into the components of its format.
+
+    ``discipline`` helps choose the databases automatically; ``databases`` chooses them by
+    hand and, when given, overrides that choice.
+    """
 
     text: str
     format: QuestionFormat
     components: tuple[Component, ...]
     exclusions: tuple[Condition, ...] = field(default=())
+    discipline: Discipline | None = None
+    databases: tuple[Database, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.text.strip():
@@ -198,17 +254,28 @@ class StructuredQuestion:
                 raise QuestionError(
                     f"role {role.value!r} does not belong to the {self.format.value} format"
                 )
-        if len(set(roles)) != len(roles):
+        fixed = [role for role in roles if role not in REPEATABLE_ROLES]
+        if len(set(fixed)) != len(fixed):
             raise QuestionError("each component role can appear only once")
+        if len(set(self.databases)) != len(self.databases):
+            raise QuestionError("each database can be chosen only once")
         if not self.conditions:
             raise QuestionError("the question needs at least one condition to search for")
 
     @property
     def conditions(self) -> tuple[Condition, ...]:
-        """Conditions in the canonical order of the format, regardless of input order."""
+        """Conditions in the canonical order of the format, regardless of input order.
+
+        Free concepts have no canonical order, so they keep the order they were given in.
+        """
         order = FORMAT_ROLES[self.format]
         ordered = sorted(self.components, key=lambda c: order.index(c.role))
         return tuple(cond for comp in ordered for cond in comp.conditions)
+
+    @property
+    def controlled_terms(self) -> tuple[Term, ...]:
+        """Every controlled term of the conditions and exclusions."""
+        return tuple(t for c in self.conditions + self.exclusions for t in c.controlled_terms)
 
 
 @dataclass(frozen=True, slots=True)
