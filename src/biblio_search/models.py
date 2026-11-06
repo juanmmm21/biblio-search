@@ -253,3 +253,48 @@ class ArticleSummary:
     year: int | None
     doi: str | None
     publication_types: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ThesaurusEntry:
+    """A heading as the thesaurus defines it (e.g. a MeSH descriptor).
+
+    ``synonyms`` are the entry terms rewritten as free text: without the inverted forms
+    («Anxiety, Social») that authors never write, as Del Pino advises. ``has_narrower``
+    tells whether searching the heading also retrieves narrower ones (it *explodes*), so
+    the no-explode scopes only make a difference when it is true.
+    """
+
+    vocabulary: str
+    identifier: str
+    name: str
+    synonyms: tuple[str, ...] = ()
+    has_narrower: bool = False
+    scope_note: str = ""
+
+
+class TermStatus(StrEnum):
+    """Outcome of checking a controlled term against its thesaurus."""
+
+    VALID = "valid"
+    ENTRY_TERM = "entry_term"
+    NOT_FOUND = "not_found"
+
+
+@dataclass(frozen=True, slots=True)
+class TermCheck:
+    """Result of checking one controlled term of one condition.
+
+    ``ENTRY_TERM`` means the text is a synonym of a heading (``entry.name``) rather than the
+    heading itself; ``NOT_FOUND`` means it is not in the thesaurus and must be searched as
+    free text.
+    """
+
+    condition: str
+    term: Term
+    status: TermStatus
+    entry: ThesaurusEntry | None = None
+
+    def __post_init__(self) -> None:
+        if (self.entry is None) != (self.status is TermStatus.NOT_FOUND):
+            raise ValueError("only terms that were not found come without a thesaurus entry")
