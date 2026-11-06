@@ -121,11 +121,14 @@ class MeshThesaurus:
     async def lookup(self, texts: Sequence[str]) -> dict[str, ThesaurusEntry | None]:
         queries = {text: mesh_query(text) for text in texts}
         uids_by_query: dict[str, tuple[str, ...]] = {}
-        for query in dict.fromkeys(q.casefold() for q in queries.values()):
+        # El índice no distingue mayúsculas: «Anxiety» y «anxiety» comparten una petición.
+        for query in queries.values():
+            if query.casefold() in uids_by_query:
+                continue
             payload = await self._backend.get_json(
                 "esearch.fcgi", {"db": "mesh", "term": query, "retmax": str(_MAX_MATCHES)}
             )
-            uids_by_query[query] = parse_search(payload).ids
+            uids_by_query[query.casefold()] = parse_search(payload).ids
         uids = list(dict.fromkeys(uid for ids in uids_by_query.values() for uid in ids))
         descriptors: dict[str, _Descriptor] = {}
         for start in range(0, len(uids), SUMMARY_BATCH_SIZE):
