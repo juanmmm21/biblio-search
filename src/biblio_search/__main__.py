@@ -10,6 +10,14 @@ from dataclasses import replace
 from pathlib import Path
 
 from biblio_search import __version__
+from biblio_search.catalog import (
+    DATABASE_LABELS,
+    DIALECTS,
+    SEARCHABLE,
+    VOCABULARY_LABELS,
+    foreign_note,
+    heading_label,
+)
 from biblio_search.check import QuestionCheck, apply_check, check_question, scope_note
 from biblio_search.eutils import MAX_RETMAX, EutilsClient, EutilsConfig, EutilsError
 from biblio_search.mesh import MeshThesaurus
@@ -19,27 +27,12 @@ from biblio_search.models import (
     QuestionError,
     StrategyOptions,
     StructuredQuestion,
-    Term,
     TermCheck,
     TermStatus,
-    Vocabulary,
 )
 from biblio_search.pipeline import SearchReport, run_search
-from biblio_search.protocols import QueryDialect
-from biblio_search.pubmed_query import PubMedDialect, foreign_terms
 from biblio_search.question_file import load_question
 from biblio_search.selection import DatabaseSelection, SelectionMode, select_databases
-
-DIALECTS: dict[Database, QueryDialect] = {Database.PUBMED: PubMedDialect()}
-# Bases con cliente: de momento solo se puede consultar PubMed.
-SEARCHABLE = frozenset({Database.PUBMED})
-VOCABULARY_LABELS = {Vocabulary.MESH.value: "MeSH", Vocabulary.ERIC.value: "ERIC"}
-DATABASE_LABELS = {
-    Database.PUBMED: "PubMed",
-    Database.ERIC: "ERIC",
-    Database.ARXIV: "arXiv",
-    Database.OPENALEX: "OpenAlex",
-}
 
 
 def _max_records(value: str) -> int:
@@ -160,11 +153,6 @@ def format_term_check(check: TermCheck) -> str:
     return f"{line}\n              {note}" if note else line
 
 
-def _heading_label(term: Term) -> str:
-    vocabulary = term.vocabulary.value if term.vocabulary is not None else ""
-    return f"{term.text} ({VOCABULARY_LABELS.get(vocabulary, vocabulary)})"
-
-
 def format_check(result: QuestionCheck, equation: str) -> str:
     checks = result.checks
     label = VOCABULARY_LABELS.get(result.vocabulary, result.vocabulary)
@@ -174,7 +162,7 @@ def format_check(result: QuestionCheck, equation: str) -> str:
     lines += [format_term_check(c) for c in checks]
     if result.unchecked:
         lines += ["", f"Not checked (biblio-search cannot check them against {label}):"]
-        lines += [f"  {_heading_label(term)}" for term in result.unchecked]
+        lines += [f"  {heading_label(term)}" for term in result.unchecked]
     suggested = [item for item in result.conditions if item.suggested_synonyms]
     if suggested:
         lines += ["", "Synonyms you could add as free text:"]
@@ -191,16 +179,6 @@ async def _check(
     async with EutilsClient(config) as client:
         result = await check_question(question, MeshThesaurus(client))
     return result, apply_check(question, result)
-
-
-def foreign_note(question: StructuredQuestion, dialect: QueryDialect) -> str | None:
-    """Warn that some headings are searched as free text because the database lacks them."""
-    foreign = foreign_terms(question, dialect.vocabularies)
-    if not foreign:
-        return None
-    label = DATABASE_LABELS.get(Database(dialect.name), dialect.name)
-    headings = ", ".join(_heading_label(term) for term in foreign)
-    return f"{label} does not index these headings, so they are searched as free text: {headings}"
 
 
 def format_selection(
