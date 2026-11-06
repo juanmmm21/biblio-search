@@ -10,10 +10,12 @@ import biblio_search.__main__ as cli
 from biblio_search.__main__ import format_check, format_record, main
 from biblio_search.check import QuestionCheck
 from biblio_search.eutils import EutilsClient, EutilsConfig
-from biblio_search.models import ArticleSummary
+from biblio_search.models import ArticleSummary, Term, Vocabulary
 from biblio_search.ratelimit import RateLimiter
 
-EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "caregiver-burden.toml"
+EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
+EXAMPLE = EXAMPLES / "caregiver-burden.toml"
+EDUCATION = EXAMPLES / "peer-tutoring-reading.toml"
 
 
 def test_build_prints_equation(capsys: pytest.CaptureFixture[str]) -> None:
@@ -70,6 +72,7 @@ def test_search_prints_report(
     assert main(["search", str(EXAMPLE), "--max", "3", "--email", "flag@example.org"]) == 0
 
     out = capsys.readouterr().out
+    assert out.startswith("Searching in: PubMed (also chosen, not searchable yet: OpenAlex)\n")
     assert "Results: 2808" in out
     assert "PubMed understood: (" in out
     assert "  1. PMID 42970524 (2026) Music-Based Interventions" in out
@@ -179,7 +182,91 @@ def test_format_check_without_controlled_terms() -> None:
     out = format_check(QuestionCheck("mesh", ()), "(x[tiab])")
     assert out == (
         "MeSH check of 0 controlled terms\n"
-        "  (the question has no controlled terms)\n"
+        "  (the question has no MeSH terms)\n"
         "\n"
         "Equation after the check: (x[tiab])"
     )
+
+
+def test_build_warns_about_foreign_headings(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["build", str(EDUCATION)]) == 0
+    captured = capsys.readouterr()
+    assert captured.out.startswith("(peer teaching[tiab] OR")
+    assert captured.err == (
+        "biblio-search: PubMed does not index these headings, so they are searched as free"
+        " text: Peer Teaching (ERIC), Reading Comprehension (ERIC),"
+        " Elementary School Students (ERIC)\n"
+    )
+
+
+def test_build_without_foreign_headings_is_silent(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["build", str(EXAMPLE), "--dialect", "pubmed"]) == 0
+    assert capsys.readouterr().err == ""
+
+
+def test_databases_explains_the_automatic_choice(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["databases", str(EXAMPLE)]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith(
+        "Databases (chosen automatically):\n"
+        "  PubMed\n"
+        "    - the question uses MeSH headings\n"
+        "    - SPC is a health-science question format\n"
+        "  OpenAlex (biblio-search cannot search it yet)\n"
+    )
+    assert "\nPubMed equation: (Anxiety[mj:noexp] OR" in out
+    assert "Note:" not in out
+
+
+def test_databases_for_an_education_question(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["databases", str(EDUCATION)]) == 0
+    out = capsys.readouterr().out
+    assert "  ERIC (biblio-search cannot search it yet)\n    - the discipline is education" in out
+    assert out.endswith(
+        "\nNone of them can be searched yet; add --database pubmed to use PubMed.\n"
+    )
+    assert "equation" not in out
+
+
+def test_databases_by_hand_include_the_rule_reasons(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["databases", str(EDUCATION), "--database", "pubmed"]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("Databases (chosen by hand):\n  PubMed\n    - chosen by hand\n")
+    assert "\nPubMed equation: (peer teaching[tiab] OR" in out
+    assert "\nNote: PubMed does not index these headings" in out
+
+
+def test_databases_rejects_unknown_names(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit):
+        main(["databases", str(EXAMPLE), "--database", "scopus"])
+    assert "invalid choice" in capsys.readouterr().err
+
+
+def test_search_needs_a_searchable_database(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seen: list[httpx.Request] = []
+    _patch_client(monkeypatch, seen)
+    assert main(["search", str(EDUCATION)]) == 2
+    err = capsys.readouterr().err
+    assert "none of the chosen databases can be searched yet (ERIC, OpenAlex)" in err
+    assert "--database pubmed" in err
+    assert seen == []
+
+
+def test_search_in_pubmed_by_hand(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seen: list[httpx.Request] = []
+    _patch_client(monkeypatch, seen)
+    assert main(["search", str(EDUCATION), "--database", "pubmed", "--max", "1"]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("Searching in: PubMed\nEquation: (peer teaching[tiab] OR")
+    assert seen[0].url.params["term"].startswith("(peer teaching[tiab]")
+
+
+def test_format_check_lists_unchecked_headings() -> None:
+    eric = Term.controlled("Peer Teaching", vocabulary=Vocabulary.ERIC)
+    out = format_check(QuestionCheck("mesh", (), (eric,)), "(x[tiab])")
+    assert "\nNot checked (biblio-search cannot check them against MeSH):\n" in out
+    assert "  Peer Teaching (ERIC)\n" in out
