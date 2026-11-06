@@ -45,7 +45,7 @@ def render_term(term: Term) -> str:
     return f"{text}[{tag}]"
 
 
-def _is_covered(text: str, free_terms: tuple[Term, ...]) -> bool:
+def is_covered(text: str, free_terms: tuple[Term, ...]) -> bool:
     """Whether some free term already retrieves ``text`` (same word or a truncated root)."""
     folded = text.casefold()
     for term in free_terms:
@@ -68,7 +68,7 @@ def expand_condition(condition: Condition, options: StrategyOptions) -> Conditio
         # natural: se omite y el usuario añade sus sinónimos a mano.
         if heading.needs_quotes:
             continue
-        if _is_covered(heading.text, free_terms + tuple(extra)):
+        if is_covered(heading.text, free_terms + tuple(extra)):
             continue
         extra.append(Term.free(heading.text.lower()))
     if not extra:
