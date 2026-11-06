@@ -15,19 +15,31 @@ from biblio_search.eutils import MAX_RETMAX, EutilsClient, EutilsConfig, EutilsE
 from biblio_search.mesh import MeshThesaurus
 from biblio_search.models import (
     ArticleSummary,
+    Database,
     QuestionError,
     StrategyOptions,
     StructuredQuestion,
+    Term,
     TermCheck,
     TermStatus,
+    Vocabulary,
 )
 from biblio_search.pipeline import SearchReport, run_search
 from biblio_search.protocols import QueryDialect
-from biblio_search.pubmed_query import PubMedDialect
+from biblio_search.pubmed_query import PubMedDialect, foreign_terms
 from biblio_search.question_file import load_question
+from biblio_search.selection import DatabaseSelection, SelectionMode, select_databases
 
-DIALECTS: dict[str, QueryDialect] = {PubMedDialect.name: PubMedDialect()}
-VOCABULARY_LABELS = {MeshThesaurus.name: "MeSH"}
+DIALECTS: dict[Database, QueryDialect] = {Database.PUBMED: PubMedDialect()}
+# Bases con cliente: de momento solo se puede consultar PubMed.
+SEARCHABLE = frozenset({Database.PUBMED})
+VOCABULARY_LABELS = {Vocabulary.MESH.value: "MeSH", Vocabulary.ERIC.value: "ERIC"}
+DATABASE_LABELS = {
+    Database.PUBMED: "PubMed",
+    Database.ERIC: "ERIC",
+    Database.ARXIV: "arXiv",
+    Database.OPENALEX: "OpenAlex",
+}
 
 
 def _max_records(value: str) -> int:
@@ -57,14 +69,34 @@ def _build_parser() -> argparse.ArgumentParser:
         help="limit free text to records outside MEDLINE (more specific)",
     )
 
+    choose = argparse.ArgumentParser(add_help=False)
+    choose.add_argument(
+        "--database",
+        action="append",
+        choices=[database.value for database in Database],
+        dest="databases",
+        default=[],
+        help="search this database (repeatable); overrides the file and the automatic choice",
+    )
+
     commands = parser.add_subparsers(dest="command", required=True)
     build = commands.add_parser(
         "build", parents=[question], help="print the search equation of a question file"
     )
-    build.add_argument("--dialect", choices=sorted(DIALECTS), default=PubMedDialect.name)
+    build.add_argument(
+        "--dialect", choices=[database.value for database in DIALECTS], default=Database.PUBMED
+    )
+
+    commands.add_parser(
+        "databases",
+        parents=[question, choose],
+        help="show which databases the question is searched in, why, and their equations",
+    )
 
     search = commands.add_parser(
-        "search", parents=[question], help="run the equation in PubMed and list the first records"
+        "search",
+        parents=[question, choose],
+        help="run the equation in PubMed and list the first records",
     )
     search.add_argument(
         "--max", type=_max_records, default=20, dest="max_records", help="records to list"
@@ -128,13 +160,21 @@ def format_term_check(check: TermCheck) -> str:
     return f"{line}\n              {note}" if note else line
 
 
+def _heading_label(term: Term) -> str:
+    vocabulary = term.vocabulary.value if term.vocabulary is not None else ""
+    return f"{term.text} ({VOCABULARY_LABELS.get(vocabulary, vocabulary)})"
+
+
 def format_check(result: QuestionCheck, equation: str) -> str:
     checks = result.checks
     label = VOCABULARY_LABELS.get(result.vocabulary, result.vocabulary)
     lines = [f"{label} check of {len(checks)} controlled terms"]
     if not checks:
-        lines.append("  (the question has no controlled terms)")
+        lines.append(f"  (the question has no {label} terms)")
     lines += [format_term_check(c) for c in checks]
+    if result.unchecked:
+        lines += ["", f"Not checked (biblio-search cannot check them against {label}):"]
+        lines += [f"  {_heading_label(term)}" for term in result.unchecked]
     suggested = [item for item in result.conditions if item.suggested_synonyms]
     if suggested:
         lines += ["", "Synonyms you could add as free text:"]
@@ -153,37 +193,94 @@ async def _check(
     return result, apply_check(question, result)
 
 
+def foreign_note(question: StructuredQuestion, dialect: QueryDialect) -> str | None:
+    """Warn that some headings are searched as free text because the database lacks them."""
+    foreign = foreign_terms(question, dialect.vocabularies)
+    if not foreign:
+        return None
+    label = DATABASE_LABELS.get(Database(dialect.name), dialect.name)
+    headings = ", ".join(_heading_label(term) for term in foreign)
+    return f"{label} does not index these headings, so they are searched as free text: {headings}"
+
+
+def format_selection(
+    selection: DatabaseSelection,
+    question: StructuredQuestion,
+    options: StrategyOptions,
+) -> str:
+    how = "chosen by hand" if selection.mode is SelectionMode.MANUAL else "chosen automatically"
+    lines = [f"Databases ({how}):"]
+    for choice in selection.choices:
+        label = DATABASE_LABELS[choice.database]
+        state = "" if choice.searchable else " (biblio-search cannot search it yet)"
+        lines.append(f"  {label}{state}")
+        lines += [f"    - {reason}" for reason in choice.reasons]
+    if not selection.searchable:
+        lines += ["", "None of them can be searched yet; add --database pubmed to use PubMed."]
+    for database in selection.searchable:
+        dialect = DIALECTS[database]
+        lines += ["", f"{DATABASE_LABELS[database]} equation: {dialect.render(question, options)}"]
+        note = foreign_note(question, dialect)
+        if note:
+            lines.append(f"Note: {note}")
+    return "\n".join(lines)
+
+
 def _config(args: argparse.Namespace) -> EutilsConfig:
     config = EutilsConfig.from_env()
     return replace(config, email=args.email) if args.email else config
 
 
-async def _search(args: argparse.Namespace, config: EutilsConfig) -> SearchReport:
-    question, file_options = load_question(args.question_file)
-    async with EutilsClient(config) as client:
+def _searched_in(selection: DatabaseSelection) -> str:
+    pending = selection.pending
+    if Database.PUBMED not in selection.searchable:
+        names = ", ".join(DATABASE_LABELS[d] for d in pending)
+        raise QuestionError(
+            f"none of the chosen databases can be searched yet ({names}); "
+            "add --database pubmed to search PubMed"
+        )
+    line = "Searching in: PubMed"
+    if pending:
+        line += (
+            f" (also chosen, not searchable yet: {', '.join(DATABASE_LABELS[d] for d in pending)})"
+        )
+    return line
+
+
+async def _search(
+    question: StructuredQuestion, options: StrategyOptions, args: argparse.Namespace
+) -> SearchReport:
+    async with EutilsClient(_config(args)) as client:
         return await run_search(
-            question,
-            _merge_options(file_options, args),
-            PubMedDialect(),
-            client,
-            max_records=args.max_records,
+            question, options, DIALECTS[Database.PUBMED], client, max_records=args.max_records
         )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     try:
+        question, file_options = load_question(args.question_file)
+        options = _merge_options(file_options, args)
         if args.command == "build":
-            question, file_options = load_question(args.question_file)
-            print(DIALECTS[args.dialect].render(question, _merge_options(file_options, args)))
+            dialect = DIALECTS[Database(args.dialect)]
+            print(dialect.render(question, options))
+            note = foreign_note(question, dialect)
+            if note:
+                print(f"biblio-search: {note}", file=sys.stderr)
             return 0
         if args.command == "check":
-            question, file_options = load_question(args.question_file)
             result, fixed = asyncio.run(_check(question, _config(args)))
-            equation = PubMedDialect().render(fixed, _merge_options(file_options, args))
+            equation = DIALECTS[Database.PUBMED].render(fixed, options)
             print(format_check(result, equation))
             return 0
-        print(format_report(asyncio.run(_search(args, _config(args)))))
+        requested = [Database(name) for name in args.databases]
+        selection = select_databases(question, SEARCHABLE, requested)
+        if args.command == "databases":
+            print(format_selection(selection, question, options))
+            return 0
+        searched_in = _searched_in(selection)
+        report = asyncio.run(_search(question, options, args))
+        print(f"{searched_in}\n{format_report(report)}")
         return 0
     except QuestionError as exc:
         print(f"biblio-search: {exc}", file=sys.stderr)
