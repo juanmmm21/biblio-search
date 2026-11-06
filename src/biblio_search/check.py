@@ -3,7 +3,8 @@
 Headings are never trusted as typed (or as proposed by a model): each one is confirmed in
 the thesaurus. Entry terms are replaced by the heading they point to, and texts that are
 not in the thesaurus are searched as free text instead, so the equation never relies on a
-heading that does not exist.
+heading that does not exist. Each thesaurus only checks the headings of its own vocabulary;
+headings of other vocabularies are left as they are and listed as unchecked.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from biblio_search.models import (
     TermKind,
     TermStatus,
     ThesaurusEntry,
+    Vocabulary,
 )
 from biblio_search.protocols import Thesaurus
 from biblio_search.pubmed_query import is_covered
@@ -41,6 +43,7 @@ class QuestionCheck:
 
     vocabulary: str
     conditions: tuple[ConditionCheck, ...]
+    unchecked: tuple[Term, ...] = ()
 
     @property
     def checks(self) -> tuple[TermCheck, ...]:
@@ -93,9 +96,10 @@ def _suggestions(condition: Condition, checks: tuple[TermCheck, ...]) -> tuple[s
 
 
 async def check_question(question: StructuredQuestion, thesaurus: Thesaurus) -> QuestionCheck:
-    """Look up every controlled term of ``question`` (conditions and exclusions)."""
+    """Look up the controlled terms of ``question`` that belong to ``thesaurus``."""
     conditions = question.conditions + question.exclusions
-    texts = list(dict.fromkeys(t.text for c in conditions for t in c.controlled_terms))
+    own = [t for c in conditions for t in c.controlled_in(thesaurus.name)]
+    texts = list(dict.fromkeys(t.text for t in own))
     entries = await thesaurus.lookup(texts) if texts else {}
     results: list[ConditionCheck] = []
     for condition in conditions:
@@ -106,10 +110,11 @@ async def check_question(question: StructuredQuestion, thesaurus: Thesaurus) -> 
                 status=_status(term, entries.get(term.text)),
                 entry=entries.get(term.text),
             )
-            for term in condition.controlled_terms
+            for term in condition.controlled_in(thesaurus.name)
         )
         results.append(ConditionCheck(condition, checks, _suggestions(condition, checks)))
-    return QuestionCheck(vocabulary=thesaurus.name, conditions=tuple(results))
+    unchecked = tuple(t for t in question.controlled_terms if t.vocabulary != thesaurus.name)
+    return QuestionCheck(thesaurus.name, tuple(results), tuple(dict.fromkeys(unchecked)))
 
 
 def scope_note(check: TermCheck) -> str | None:
@@ -123,20 +128,23 @@ def scope_note(check: TermCheck) -> str | None:
     return None
 
 
+_CheckKey = tuple[str, Vocabulary | None]
+
+
 def _fixed_term(term: Term, check: TermCheck | None) -> Term:
-    if term.kind is TermKind.FREE or check is None:
+    if term.kind is TermKind.FREE or check is None or term.vocabulary is None:
         return term
     if check.entry is None:
         return Term.free(term.text)
-    return Term.controlled(check.entry.name, term.scope)
+    return Term.controlled(check.entry.name, term.scope, term.vocabulary)
 
 
-def _fixed_condition(condition: Condition, checks: dict[str, TermCheck]) -> Condition:
+def _fixed_condition(condition: Condition, checks: dict[_CheckKey, TermCheck]) -> Condition:
     terms: list[Term] = []
-    seen: set[tuple[str, TermKind]] = set()
+    seen: set[tuple[str, TermKind, Vocabulary | None]] = set()
     for term in condition.terms:
-        fixed = _fixed_term(term, checks.get(term.text))
-        key = (fixed.text.casefold(), fixed.kind)
+        fixed = _fixed_term(term, checks.get((term.text, term.vocabulary)))
+        key = (fixed.text.casefold(), fixed.kind, fixed.vocabulary)
         if key not in seen:
             seen.add(key)
             terms.append(fixed)
@@ -145,7 +153,7 @@ def _fixed_condition(condition: Condition, checks: dict[str, TermCheck]) -> Cond
 
 def apply_check(question: StructuredQuestion, result: QuestionCheck) -> StructuredQuestion:
     """Rename entry terms to their heading and search unknown headings as free text."""
-    checks = {check.term.text: check for check in result.checks}
+    checks = {(check.term.text, check.term.vocabulary): check for check in result.checks}
     components = tuple(
         replace(c, conditions=tuple(_fixed_condition(cond, checks) for cond in c.conditions))
         for c in question.components
