@@ -1,0 +1,29 @@
+# A question outside health: free concepts instead of SPC/PICO, ERIC descriptors instead of
+# MeSH and an explicit discipline, so biblio-search picks ERIC and OpenAlex on its own.
+question = "Does peer tutoring improve reading comprehension in primary school students?"
+format = "concepts"
+discipline = "education"
+
+[[components]]
+description = "Peer tutoring"
+
+[[components.conditions]]
+label = "peer tutoring"
+controlled = [{ term = "Peer Teaching", vocabulary = "eric" }]
+free = ["peer tutor*", "peer assisted learning", "cross age tutor*"]
+
+[[components]]
+description = "Reading comprehension"
+
+[[components.conditions]]
+label = "reading comprehension"
+controlled = [{ term = "Reading Comprehension", vocabulary = "eric" }]
+free = ["reading comprehension", "reading skill*"]
+
+[[components]]
+description = "Primary school students"
+
+[[components.conditions]]
+label = "primary school"
+controlled = [{ term = "Elementary School Students", vocabulary = "eric" }]
+free = ["primary school*", "elementary school*"]
