@@ -5,20 +5,33 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Protocol
 
-from biblio_search.models import StrategyOptions, StructuredQuestion, ThesaurusEntry
+from biblio_search.models import (
+    StrategyOptions,
+    StructuredQuestion,
+    ThesaurusEntry,
+    Vocabulary,
+)
 
 
 class QueryDialect(Protocol):
-    """Translates a structured question into the query syntax of one database."""
+    """Translates a structured question into the query syntax of one database.
+
+    ``vocabularies`` are the thesauri whose headings the database indexes; headings from any
+    other vocabulary are searched as free text there.
+    """
 
     name: str
+    vocabularies: frozenset[Vocabulary]
 
     def render(self, question: StructuredQuestion, options: StrategyOptions) -> str:
         """Return the full search equation for ``question``."""
 
 
 class Thesaurus(Protocol):
-    """A controlled vocabulary (MeSH, later ERIC or DeCS) that can confirm headings."""
+    """A controlled vocabulary (MeSH, later ERIC or DeCS) that can confirm headings.
+
+    ``name`` is the :class:`Vocabulary` it checks: only terms of that vocabulary are sent.
+    """
 
     name: str
 

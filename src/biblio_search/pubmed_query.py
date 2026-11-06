@@ -7,6 +7,8 @@ coexist safely in a single equation (Del Pino, 2017).
 
 from __future__ import annotations
 
+from collections.abc import Collection
+
 from biblio_search.models import (
     TRUNCATION,
     Condition,
@@ -16,6 +18,7 @@ from biblio_search.models import (
     StructuredQuestion,
     Term,
     TermKind,
+    Vocabulary,
 )
 
 CONTROLLED_TAGS: dict[ControlledScope, str] = {
@@ -57,6 +60,31 @@ def is_covered(text: str, free_terms: tuple[Term, ...]) -> bool:
     return False
 
 
+def foreign_terms(
+    question: StructuredQuestion, vocabularies: Collection[Vocabulary]
+) -> tuple[Term, ...]:
+    """Controlled terms of ``question`` from vocabularies a database does not index."""
+    return tuple(t for t in question.controlled_terms if t.vocabulary not in vocabularies)
+
+
+def localize_condition(condition: Condition, vocabularies: Collection[Vocabulary]) -> Condition:
+    """Search headings from foreign vocabularies as free text.
+
+    A heading of another thesaurus (an ERIC descriptor in PubMed) would match nothing as a
+    heading, but its words still name the concept, so they are kept as free text unless a
+    free term of the condition already retrieves them.
+    """
+    terms: list[Term] = []
+    for term in condition.terms:
+        if term.kind is TermKind.FREE or term.vocabulary in vocabularies:
+            terms.append(term)
+            continue
+        free = tuple(t for t in terms if t.kind is TermKind.FREE) + condition.free_terms
+        if not is_covered(term.text, free):
+            terms.append(Term.free(term.text.lower()))
+    return Condition(label=condition.label, terms=tuple(terms))
+
+
 def expand_condition(condition: Condition, options: StrategyOptions) -> Condition:
     """Apply the term-level options of the strategy to a condition."""
     if not options.repeat_controlled_as_free:
@@ -82,7 +110,7 @@ def _or_group(terms: tuple[Term, ...]) -> str:
 
 def render_condition(condition: Condition, options: StrategyOptions) -> str:
     """Render a condition as a parenthesised OR group."""
-    condition = expand_condition(condition, options)
+    condition = expand_condition(localize_condition(condition, PubMedDialect.vocabularies), options)
     controlled = condition.controlled_terms
     free = condition.free_terms
     # Sin descriptores, limitar el lenguaje libre a registros no indexados dejaría la
@@ -97,9 +125,11 @@ class PubMedDialect:
     """Query dialect for PubMed / MEDLINE."""
 
     name = "pubmed"
+    vocabularies = frozenset({Vocabulary.MESH})
 
     def render(self, question: StructuredQuestion, options: StrategyOptions) -> str:
         equation = " AND ".join(render_condition(c, options) for c in question.conditions)
         for exclusion in question.exclusions:
-            equation += f" NOT {_or_group(exclusion.terms)}"
+            local = localize_condition(exclusion, self.vocabularies)
+            equation += f" NOT {_or_group(local.terms)}"
         return equation
