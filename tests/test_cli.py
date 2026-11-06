@@ -4,10 +4,11 @@ from pathlib import Path
 
 import httpx
 import pytest
-from conftest import load_fixture
+from conftest import load_fixture, mesh_fixture_for
 
 import biblio_search.__main__ as cli
-from biblio_search.__main__ import format_record, main
+from biblio_search.__main__ import format_check, format_record, main
+from biblio_search.check import QuestionCheck
 from biblio_search.eutils import EutilsClient, EutilsConfig
 from biblio_search.models import ArticleSummary
 from biblio_search.ratelimit import RateLimiter
@@ -99,3 +100,86 @@ def test_search_rejects_out_of_range_max(capsys: pytest.CaptureFixture[str]) -> 
 def test_format_record_without_year_or_types() -> None:
     record = ArticleSummary("1", "Title.", (), "Journal", None, None, ())
     assert format_record(12, record) == " 12. PMID 1 (n.d.) Title. | Journal"
+
+
+def _patch_mesh_client(monkeypatch: pytest.MonkeyPatch, seen: list[httpx.Request]) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        endpoint = request.url.path.rsplit("/", 1)[-1]
+        return httpx.Response(200, json=mesh_fixture_for(endpoint, request.url.params))
+
+    async def no_wait(_: float) -> None:
+        return None
+
+    def factory(config: EutilsConfig) -> EutilsClient:
+        return EutilsClient(
+            config,
+            transport=httpx.MockTransport(handler),
+            limiter=RateLimiter(1000, sleep=no_wait),
+            sleep=no_wait,
+        )
+
+    monkeypatch.setattr(cli, "EutilsClient", factory)
+
+
+def test_check_confirms_example_headings(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seen: list[httpx.Request] = []
+    _patch_mesh_client(monkeypatch, seen)
+
+    assert main(["check", str(EXAMPLE), "--email", "flag@example.org"]) == 0
+
+    out = capsys.readouterr().out
+    assert out.startswith("MeSH check of 4 controlled terms")
+    assert "  ok          Anxiety (D001007) [anxiety or depression]" in out
+    assert "  ok          Aged (D000368) [older people]" in out
+    assert "use a no_explode scope" in out
+    assert "  caregivers: Care Givers, Family Caregivers" in out
+    assert "Equation after the check: (Anxiety[mj:noexp] OR" in out
+    assert all(r.url.params["email"] == "flag@example.org" for r in seen)
+    assert len(seen) == 5
+
+
+def test_check_demotes_unknown_and_renames_entry_terms(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _patch_mesh_client(monkeypatch, [])
+    question = tmp_path / "q.toml"
+    question.write_text(
+        'question = "q"\nformat = "spc"\n'
+        '[[components]]\nrole = "population"\ndescription = "carers"\n'
+        '[[components.conditions]]\nlabel = "carers"\n'
+        'controlled = ["Carers", "Qwzxvplorkt"]\nfree = ["carer*"]\n',
+        encoding="utf-8",
+    )
+
+    assert main(["check", str(question)]) == 0
+
+    out = capsys.readouterr().out
+    assert "  entry term  Carers -> Caregivers (D017028) [carers]" in out
+    assert "  not found   Qwzxvplorkt [carers]: searched as free text instead" in out
+    assert "Equation after the check: (Caregivers[mh] OR Qwzxvplorkt[tiab] OR carer*[tiab])" in out
+
+
+def test_check_reports_ncbi_errors(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def failing(config: EutilsConfig) -> EutilsClient:
+        return EutilsClient(
+            config, transport=httpx.MockTransport(lambda _: httpx.Response(404, text="no"))
+        )
+
+    monkeypatch.setattr(cli, "EutilsClient", failing)
+    assert main(["check", str(EXAMPLE)]) == 1
+    assert "HTTP 404" in capsys.readouterr().err
+
+
+def test_format_check_without_controlled_terms() -> None:
+    out = format_check(QuestionCheck("mesh", ()), "(x[tiab])")
+    assert out == (
+        "MeSH check of 0 controlled terms\n"
+        "  (the question has no controlled terms)\n"
+        "\n"
+        "Equation after the check: (x[tiab])"
+    )
