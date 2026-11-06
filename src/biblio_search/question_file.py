@@ -1,4 +1,4 @@
-"""Loading structured questions from TOML files."""
+"""Loading structured questions from TOML files and writing them back."""
 
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ from biblio_search.models import (
     StrategyOptions,
     StructuredQuestion,
     Term,
+    TermKind,
     Vocabulary,
 )
 
@@ -166,3 +167,125 @@ def load_question(path: Path) -> tuple[StructuredQuestion, StrategyOptions]:
     except tomllib.TOMLDecodeError as exc:
         raise QuestionError(f"{path} is not valid TOML: {exc}") from exc
     return parse_question(data)
+
+
+def parse_question_text(text: str) -> tuple[StructuredQuestion, StrategyOptions]:
+    """Read a question from the text of a TOML file (e.g. one uploaded to the web interface)."""
+    try:
+        data = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as exc:
+        raise QuestionError(f"the question file is not valid TOML: {exc}") from exc
+    return parse_question(data)
+
+
+def _term_data(term: Term) -> str | dict[str, str]:
+    # La forma corta (solo el texto) es la que se escribe a mano: se usa siempre que basta.
+    if term.kind is TermKind.FREE:
+        if term.free_field is FreeTextField.TITLE_ABSTRACT:
+            return term.text
+        return {"term": term.text, "field": term.free_field.value}
+    table = {"term": term.text}
+    if term.scope is not ControlledScope.HEADING:
+        table["scope"] = term.scope.value
+    if term.vocabulary is not None and term.vocabulary is not Vocabulary.MESH:
+        table["vocabulary"] = term.vocabulary.value
+    return term.text if len(table) == 1 else table
+
+
+def _condition_data(condition: Condition) -> dict[str, object]:
+    data: dict[str, object] = {"label": condition.label}
+    if condition.controlled_terms:
+        data["controlled"] = [_term_data(t) for t in condition.controlled_terms]
+    if condition.free_terms:
+        data["free"] = [_term_data(t) for t in condition.free_terms]
+    return data
+
+
+def question_to_data(question: StructuredQuestion, options: StrategyOptions) -> dict[str, object]:
+    """The question in the same shape :func:`parse_question` reads, without default values."""
+    data: dict[str, object] = {"question": question.text, "format": question.format.value}
+    if question.discipline is not None:
+        data["discipline"] = question.discipline.value
+    if question.databases:
+        data["databases"] = [database.value for database in question.databases]
+    components: list[dict[str, object]] = []
+    for component in question.components:
+        item: dict[str, object] = {}
+        if question.format is not QuestionFormat.CONCEPTS:
+            item["role"] = component.role.value
+        item["description"] = component.description
+        if component.conditions:
+            item["conditions"] = [_condition_data(c) for c in component.conditions]
+        components.append(item)
+    data["components"] = components
+    if question.exclusions:
+        data["exclusions"] = [_condition_data(c) for c in question.exclusions]
+    chosen = {
+        "repeat_controlled_as_free": options.repeat_controlled_as_free,
+        "free_text_unindexed_only": options.free_text_unindexed_only,
+    }
+    if any(chosen.values()):
+        data["options"] = {key: value for key, value in chosen.items() if value}
+    return data
+
+
+_TOML_ESCAPES = {
+    '"': '\\"',
+    "\\": "\\\\",
+    "\b": "\\b",
+    "\t": "\\t",
+    "\n": "\\n",
+    "\f": "\\f",
+    "\r": "\\r",
+}
+
+
+def _toml_string(text: str) -> str:
+    out: list[str] = []
+    for char in text:
+        if char in _TOML_ESCAPES:
+            out.append(_TOML_ESCAPES[char])
+        elif ord(char) < 0x20 or ord(char) == 0x7F:
+            out.append(f"\\u{ord(char):04x}")
+        else:
+            out.append(char)
+    return '"' + "".join(out) + '"'
+
+
+def _toml_value(value: object) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, str):
+        return _toml_string(value)
+    if isinstance(value, list):
+        return "[" + ", ".join(_toml_value(item) for item in value) + "]"
+    if isinstance(value, Mapping):
+        pairs = ", ".join(f"{key} = {_toml_value(item)}" for key, item in value.items())
+        return "{ " + pairs + " }"
+    raise TypeError(f"cannot write {type(value).__name__} as TOML")
+
+
+# Solo estas listas se escriben como [[tabla]]; los términos con opciones van en línea.
+_TABLE_LISTS = frozenset({"components", "conditions", "exclusions"})
+
+
+def _toml_table(header: str, table: Mapping[str, object], lines: list[str]) -> None:
+    nested = {k: v for k, v in table.items() if k in _TABLE_LISTS and isinstance(v, list)}
+    lines.extend(f"{k} = {_toml_value(v)}" for k, v in table.items() if k not in nested)
+    for key, items in nested.items():
+        name = f"{header}.{key}" if header else key
+        for item in items:
+            lines += ["", f"[[{name}]]"]
+            _toml_table(name, _table(item, name), lines)
+
+
+def dump_question(question: StructuredQuestion, options: StrategyOptions) -> str:
+    """Write the question as a TOML question file that :func:`load_question` reads back."""
+    data = question_to_data(question, options)
+    chosen = data.pop("options", None)
+    lines: list[str] = []
+    _toml_table("", data, lines)
+    if isinstance(chosen, Mapping):
+        lines += ["", "[options]"]
+        lines += [f"{key} = {_toml_value(value)}" for key, value in chosen.items()]
+    return "\n".join(lines) + "\n"
