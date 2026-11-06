@@ -47,8 +47,7 @@ def _merge_options(file_options: StrategyOptions, args: argparse.Namespace) -> S
         file_options,
         repeat_controlled_as_free=file_options.repeat_controlled_as_free
         or bool(args.repeat_controlled_as_free),
-        free_text_unindexed_only=file_options.free_text_unindexed_only
-        or bool(args.unindexed_only),
+        free_text_unindexed_only=file_options.free_text_unindexed_only or bool(args.unindexed_only),
     )
 
 
