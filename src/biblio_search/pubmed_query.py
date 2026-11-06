@@ -133,3 +133,7 @@ class PubMedDialect:
             local = localize_condition(exclusion, self.vocabularies)
             equation += f" NOT {_or_group(local.terms)}"
         return equation
+
+    def notes(self, question: StructuredQuestion) -> tuple[str, ...]:
+        # PubMed entiende todo lo que el modelo permite escribir: no hay nada que explicar.
+        return ()

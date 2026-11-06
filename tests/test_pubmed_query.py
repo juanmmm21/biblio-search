@@ -126,6 +126,8 @@ def test_del_pino_example() -> None:
 def test_pubmed_dialect_satisfies_protocol() -> None:
     dialect: QueryDialect = PubMedDialect()
     assert dialect.name == "pubmed"
+    question, _ = load_question(EXAMPLE)
+    assert dialect.notes(question) == ()
 
 
 def _eric(text: str) -> Term:

@@ -26,6 +26,9 @@ class QueryDialect(Protocol):
     def render(self, question: StructuredQuestion, options: StrategyOptions) -> str:
         """Return the full search equation for ``question``."""
 
+    def notes(self, question: StructuredQuestion) -> tuple[str, ...]:
+        """Explain where the equation had to depart from the question as written."""
+
 
 class Thesaurus(Protocol):
     """A controlled vocabulary (MeSH, later ERIC or DeCS) that can confirm headings.
