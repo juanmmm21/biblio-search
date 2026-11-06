@@ -1,6 +1,6 @@
 # biblio-search
 
-Turn a structured clinical question into a rigorous, reproducible PubMed search equation.
+Turn a structured clinical question into a rigorous, reproducible PubMed search, and run it.
 
 biblio-search models the bibliographic search method taught to health-science students:
 decompose the question, map every concept to controlled vocabulary and free text, tag each
@@ -39,6 +39,9 @@ University of Jaén) in *"Cómo aprender (y enseñar) a realizar búsquedas en C
 5. **Tune sensitivity and specificity.** Repeat headings as free text to catch records not
    yet indexed, or limit free text to non-MEDLINE records with `NOT MEDLINE[sb]` for a more
    specific search.
+6. **Run it and read what the database understood.** biblio-search sends the equation to
+   PubMed through NCBI E-utilities and shows the record count, PubMed's own translation of
+   the query, any term it did not recognise and the first records to screen.
 
 ## Engineering highlights
 
@@ -49,10 +52,19 @@ University of Jaén) in *"Cómo aprender (y enseñar) a realizar búsquedas en C
 - **Quoting is decided, not guessed.** Terms are quoted only when PubMed would otherwise
   misread them (commas, parentheses, words like `and`/`or`/`not`, or truncated phrases),
   because unnecessary quotes reduce recall.
+- **PubMed is never trusted blindly.** PubMed silently remaps headings and drops broken
+  syntax (an unbalanced parenthesis simply disappears). Every search prints the query
+  translation and surfaces NCBI's `phrasesnotfound` and warning lists.
+- **A polite async client.** The E-utilities client is built on `httpx.AsyncClient`, spaces
+  requests to NCBI's quota (3 per second, 10 with an API key), always identifies the tool,
+  retries 429/5xx and network errors with backoff (honouring `Retry-After`, including NCBI's
+  rate-limit errors served with HTTP 200) and batches summary requests.
+- **Offline, deterministic tests.** Real NCBI responses are recorded as fixtures and an
+  autouse guard makes any test that opens a socket fail.
 - **Dialects behind a protocol.** Query generation sits behind a small `QueryDialect`
   interface, so other databases can get their own syntax without touching the model.
-- **Strict typing, no runtime dependencies.** Frozen dataclasses and enums, `mypy --strict`
-  on sources and tests, and only the standard library at runtime (`tomllib` for input).
+- **Strict typing, one runtime dependency.** Frozen dataclasses and enums, `mypy --strict`
+  on sources and tests, and only `httpx` beyond the standard library.
 
 ## Architecture
 
@@ -63,10 +75,13 @@ biblio-search/
 │   ├── protocols.py      # QueryDialect interface
 │   ├── pubmed_query.py   # PubMed field tags, quoting rules and equation assembly
 │   ├── question_file.py  # TOML question files -> validated domain objects
-│   └── __main__.py       # command line interface
+│   ├── ratelimit.py      # async requests-per-second limiter
+│   ├── eutils.py         # NCBI E-utilities client (esearch, esummary) and response parsing
+│   ├── pipeline.py       # question -> equation -> search -> records to screen
+│   └── __main__.py       # command line interface (build, search)
 ├── examples/
 │   └── caregiver-burden.toml   # worked example from Del Pino (2017)
-└── tests/                # unit tests, no network access
+└── tests/                # unit tests and recorded NCBI fixtures, no network access
 ```
 
 ## Installation
@@ -149,6 +164,36 @@ The MEDLINE filter is only applied to conditions that also have headings, so a f
 condition never loses the indexed records. Avoid it for systematic reviews, which need the
 extra sensitivity.
 
+### Running the search in PubMed
+
+`search` builds the same equation, runs it through NCBI E-utilities and lists the first
+records (20 by default, up to 10,000):
+
+```console
+$ biblio-search search examples/caregiver-burden.toml --max 3
+Equation: (Anxiety[mj:noexp] OR Depression[mj] OR anxiety[tiab] OR depress*[tiab]) AND (Caregivers[mj] OR caregiv*[tiab] OR carer*[tiab]) AND (Aged[mh] OR elder*[tiab] OR older people[tiab]) AND (burden*[tiab] OR overload*[tiab] OR strain*[tiab])
+PubMed understood: ("anxiety"[MeSH Major Topic:noexp] OR ("depressive disorder"[MeSH Major Topic] OR "depression"[MeSH Major Topic]) OR "anxiety"[Title/Abstract] OR "depress*"[Title/Abstract]) AND ("caregivers"[MeSH Major Topic] OR "caregiv*"[Title/Abstract] OR "carer*"[Title/Abstract]) AND ("aged"[MeSH Terms] OR "elder*"[Title/Abstract] OR "older people"[Title/Abstract]) AND ("burden*"[Title/Abstract] OR "overload*"[Title/Abstract] OR "strain*"[Title/Abstract])
+Results: 2808
+
+  1. PMID 42970524 (2026) Music-Based Interventions for People Living With Dementia. | Home healthcare now [Journal Article, Review]
+  2. PMID 42956697 (2026) Family functioning and depressive symptoms among caregivers of disabled old people: A multiple mediation model. | Geriatric nursing (New York, N.Y.) [Journal Article]
+  3. PMID 42919807 (2026) "The Effect of Forgiveness Psychoeducation on Death Anxiety, Caregiver Burden, and Forgiveness Tendencies in Caregivers of Patients at the End of Life: A Randomized Controlled Trial": Şahin 49(3) May/June 2026. | Cancer nursing [Journal Article, Randomized Controlled Trial]
+```
+
+Counts change as PubMed grows. The translation line is worth reading: here PubMed expanded
+`Depression[mj]` to also cover *depressive disorder*. Unknown terms are listed as
+`Not found:` and anything PubMed ignored as `Warning:`.
+
+NCBI asks every tool to identify itself. biblio-search always sends `tool=biblio-search`;
+set a contact email and, optionally, a free
+[NCBI API key](https://www.ncbi.nlm.nih.gov/books/NBK25497/) to raise the limit from 3
+to 10 requests per second:
+
+```bash
+export NCBI_EMAIL="you@example.org"   # or pass --email
+export NCBI_API_KEY="..."             # optional, read from the environment only
+```
+
 ### Question file reference
 
 - `question` (string) and `format` (`spc` or `pico`) are required.
@@ -165,6 +210,8 @@ extra sensitivity.
   command line flags can switch them on, never off.
 
 ## Programmatic use
+
+Build an equation from code:
 
 ```python
 from biblio_search.models import (
@@ -196,6 +243,28 @@ print(PubMedDialect().render(question, StrategyOptions()))
 # (Aged[mh] OR "older adult*"[tiab]) AND (Exercise[mj] OR exercis*[tiab]) AND (Accidental Falls[mh] OR fall*[tiab])
 ```
 
+Or run a question end to end with the async client:
+
+```python
+import asyncio
+from pathlib import Path
+
+from biblio_search.eutils import EutilsClient, EutilsConfig
+from biblio_search.pipeline import run_search
+from biblio_search.pubmed_query import PubMedDialect
+from biblio_search.question_file import load_question
+
+
+async def main() -> None:
+    question, options = load_question(Path("examples/caregiver-burden.toml"))
+    async with EutilsClient(EutilsConfig(email="you@example.org")) as client:
+        report = await run_search(question, options, PubMedDialect(), client, max_records=5)
+    print(report.result.count, [record.title for record in report.records])
+
+
+asyncio.run(main())
+```
+
 ## Development
 
 ```bash
@@ -205,7 +274,8 @@ ruff check . && ruff format --check src tests
 mypy --strict src tests
 ```
 
-The test suite never touches the network.
+The test suite never touches the network: NCBI responses are recorded under
+`tests/fixtures/` and opening a socket during a test makes it fail.
 
 ## Troubleshooting
 
@@ -219,6 +289,11 @@ The test suite never touches the network.
   be suspicious of fewer than 100 results on a topic with plenty of literature.
 - **A heading with commas is not repeated as free text**: headings such as
   *Aged, 80 and over* have no natural free-text form; add the synonyms you want under `free`.
+
+- **`NCBI ... failed after 4 attempts: HTTP 429`**: too many requests from your IP, often
+  several tools sharing one connection. Wait a minute, or set `NCBI_API_KEY`.
+- **`Warning: (` or a translation shorter than the equation**: PubMed dropped part of the
+  query, usually an unbalanced parenthesis in a hand-edited equation.
 
 ## License
 
