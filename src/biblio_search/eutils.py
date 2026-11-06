@@ -1,4 +1,4 @@
-"""Async client for NCBI E-utilities (PubMed esearch and esummary).
+"""Async client for NCBI E-utilities (PubMed esearch and esummary, raw calls to other dbs).
 
 Usage rules from NCBI: identify the tool (and ideally an email), stay under 3 requests per
 second without an API key or 10 with one, and back off when told to.
@@ -215,7 +215,7 @@ class EutilsClient:
             raise ValueError(f"retmax must be between 0 and {MAX_RETMAX}")
         if retstart < 0:
             raise ValueError("retstart cannot be negative")
-        payload = await self._get_json(
+        payload = await self.get_json(
             "esearch.fcgi",
             {"db": "pubmed", "term": term, "retmax": str(retmax), "retstart": str(retstart)},
         )
@@ -229,7 +229,7 @@ class EutilsClient:
         summaries: list[ArticleSummary] = []
         for start in range(0, len(pmids), SUMMARY_BATCH_SIZE):
             batch = pmids[start : start + SUMMARY_BATCH_SIZE]
-            payload = await self._get_json("esummary.fcgi", {"db": "pubmed", "id": ",".join(batch)})
+            payload = await self.get_json("esummary.fcgi", {"db": "pubmed", "id": ",".join(batch)})
             summaries.extend(parse_summaries(payload))
         return tuple(summaries)
 
@@ -248,7 +248,8 @@ class EutilsClient:
                 return float(retry_after)
         return self._config.backoff_seconds * 2.0**attempt
 
-    async def _get_json(self, endpoint: str, params: Mapping[str, str]) -> Mapping[str, object]:
+    async def get_json(self, endpoint: str, params: Mapping[str, str]) -> Mapping[str, object]:
+        """Call any E-utility (e.g. ``esearch.fcgi`` on ``db=mesh``) with identity and retries."""
         query = {**params, **self._identity()}
         last_problem = ""
         for attempt in range(self._config.max_retries + 1):
