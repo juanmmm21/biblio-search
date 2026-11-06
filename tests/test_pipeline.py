@@ -8,7 +8,15 @@ from conftest import load_fixture
 
 from biblio_search.eutils import parse_search, parse_summaries
 from biblio_search.models import ArticleSummary, SearchResult, StrategyOptions
-from biblio_search.pipeline import SearchBackend, run_search
+from biblio_search.pipeline import (
+    CountReceived,
+    EquationBuilt,
+    RecordsReceived,
+    SearchBackend,
+    SearchEvent,
+    run_search,
+    search_progress,
+)
 from biblio_search.pubmed_query import PubMedDialect
 from biblio_search.question_file import load_question
 
@@ -52,3 +60,36 @@ def test_run_search_skips_summaries_without_results() -> None:
     assert backend.summary_calls == []
     assert report.records == ()
     assert report.result.not_found == ("qwzxvplorkt",)
+
+
+async def _collect(backend: FakeBackend) -> list[SearchEvent]:
+    question, options = load_question(EXAMPLE)
+    steps = search_progress(question, options, PubMedDialect(), backend, max_records=3)
+    return [event async for event in steps]
+
+
+def test_search_progress_reports_each_step_in_order() -> None:
+    backend = FakeBackend(parse_search(load_fixture("esearch_caregiver.json")))
+
+    events = asyncio.run(_collect(backend))
+
+    assert [type(event) for event in events] == [EquationBuilt, CountReceived, RecordsReceived]
+    assert {event.database for event in events} == {"pubmed"}
+    first, second, third = events
+    assert isinstance(first, EquationBuilt)
+    assert first.equation == backend.terms[0][0]
+    assert isinstance(second, CountReceived)
+    assert second.result.count == 2808
+    assert isinstance(third, RecordsReceived)
+    assert len(third.records) == 3
+
+
+def test_search_progress_reports_empty_records_without_results() -> None:
+    backend = FakeBackend(parse_search(load_fixture("esearch_not_found.json")))
+
+    events = asyncio.run(_collect(backend))
+
+    last = events[-1]
+    assert isinstance(last, RecordsReceived)
+    assert last.records == ()
+    assert backend.summary_calls == []
