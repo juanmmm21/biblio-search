@@ -201,7 +201,7 @@ print(PubMedDialect().render(question, StrategyOptions()))
 ```bash
 pip install -e ".[dev]"
 pytest
-ruff check . && ruff format --check .
+ruff check . && ruff format --check src tests
 mypy --strict src tests
 ```
 
