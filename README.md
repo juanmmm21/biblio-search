@@ -29,20 +29,23 @@ University of Jaén) in *"Cómo aprender (y enseñar) a realizar búsquedas en C
 1. **Structure the question.** Use **SPC** (health *Situation*, *Population*, study
    *Question*), which fits any study design, or **PICO** (*Population*, *Intervention*,
    *Comparison*, *Outcome*) for intervention studies. A PICO element can be described and
-   left out of the search, as the Cochrane Handbook recommends.
-2. **Turn components into conditions.** Every condition is something each retrieved record
+   left out of the search, as the Cochrane Handbook recommends. Outside health, describe
+   the question as a list of free **concepts**.
+2. **Choose the databases.** Selecting where to search is the first decision of the
+   strategy. biblio-search picks them with fixed rules and says why, or takes your choice.
+3. **Turn components into conditions.** Every condition is something each retrieved record
    must satisfy; conditions are joined with **AND**.
-3. **Fill every condition with terms.** Controlled headings (MeSH) plus free-text synonyms
+4. **Fill every condition with terms.** Controlled headings (MeSH) plus free-text synonyms
    with truncation; the terms of a condition are alternatives joined with **OR**.
-4. **Confirm the headings in the thesaurus.** A MeSH heading is only useful if it exists:
+5. **Confirm the headings in the thesaurus.** A MeSH heading is only useful if it exists:
    biblio-search looks every controlled term up in NCBI's MeSH database, points entry terms
    to their descriptor and searches anything that is not a heading as free text.
-5. **Tag every term.** Headings get `[mh]`, `[mj]`, `[mh:noexp]` or `[mj:noexp]`, from most to
+6. **Tag every term.** Headings get `[mh]`, `[mj]`, `[mh:noexp]` or `[mj:noexp]`, from most to
    least sensitive; free text gets `[tiab]` or `[ti]`.
-6. **Tune sensitivity and specificity.** Repeat headings as free text to catch records not
+7. **Tune sensitivity and specificity.** Repeat headings as free text to catch records not
    yet indexed, or limit free text to non-MEDLINE records with `NOT MEDLINE[sb]` for a more
    specific search.
-7. **Run it and read what the database understood.** biblio-search sends the equation to
+8. **Run it and read what the database understood.** biblio-search sends the equation to
    PubMed through NCBI E-utilities and shows the record count, PubMed's own translation of
    the query, any term it did not recognise and the first records to screen.
 
@@ -63,6 +66,13 @@ University of Jaén) in *"Cómo aprender (y enseñar) a realizar búsquedas en C
   (*Caregivers*), discards subheadings that share the index, and rewrites MeSH entry terms
   into the natural, comma-free synonyms an author would actually write. The lookup sits
   behind a `Thesaurus` protocol so other vocabularies can plug in.
+- **Database choice is explained, not magic.** The automatic choice is a handful of
+  deterministic rules (MeSH headings or an SPC/PICO question lead to PubMed, an education
+  question or ERIC descriptors to ERIC, exact sciences to arXiv, OpenAlex always), and every
+  database comes with the reasons it was picked, ready to copy into a methods section.
+- **Every heading knows its thesaurus.** Controlled terms carry their vocabulary (MeSH by
+  default, ERIC). A database that does not index a vocabulary searches those headings as
+  free text and says so, and each thesaurus only checks its own headings.
 - **A polite async client.** The E-utilities client is built on `httpx.AsyncClient`, spaces
   requests to NCBI's quota (3 per second, 10 with an API key), always identifies the tool,
   retries 429/5xx and network errors with backoff (honouring `Retry-After`, including NCBI's
@@ -79,7 +89,7 @@ University of Jaén) in *"Cómo aprender (y enseñar) a realizar búsquedas en C
 ```text
 biblio-search/
 ├── src/biblio_search/
-│   ├── models.py         # SPC/PICO question, components, conditions, terms, strategy options
+│   ├── models.py         # SPC/PICO/concepts question, conditions, terms, vocabularies
 │   ├── protocols.py      # QueryDialect and Thesaurus interfaces
 │   ├── pubmed_query.py   # PubMed field tags, quoting rules and equation assembly
 │   ├── question_file.py  # TOML question files -> validated domain objects
@@ -87,10 +97,12 @@ biblio-search/
 │   ├── eutils.py         # NCBI E-utilities client (esearch, esummary) and response parsing
 │   ├── mesh.py           # MeSH lookups through E-utilities (db=mesh)
 │   ├── check.py          # heading checks, synonym suggestions, unknown terms to free text
+│   ├── selection.py      # rule-based database choice with reasons, manual override
 │   ├── pipeline.py       # question -> equation -> search -> records to screen
-│   └── __main__.py       # command line interface (build, check, search)
+│   └── __main__.py       # command line interface (build, check, databases, search)
 ├── examples/
-│   └── caregiver-burden.toml   # worked example from Del Pino (2017)
+│   ├── caregiver-burden.toml       # worked example from Del Pino (2017)
+│   └── peer-tutoring-reading.toml  # education question with free concepts and ERIC terms
 └── tests/                # unit tests and recorded NCBI fixtures, no network access
 ```
 
@@ -207,13 +219,61 @@ Suggested synonyms come from the descriptor's entry terms, put back in natural o
 already have covers them (`caregiv*` covers *Caregiver*). Nothing is written to your file:
 copy the ones that fit your question.
 
+Only MeSH headings are sent to MeSH. Headings from other vocabularies (ERIC descriptors) are
+listed under `Not checked` and left exactly as written.
+
+### Choosing the databases
+
+`databases` shows where a question will be searched, why, and the equation of every database
+biblio-search can already query:
+
+```console
+$ biblio-search databases examples/caregiver-burden.toml
+Databases (chosen automatically):
+  PubMed
+    - the question uses MeSH headings
+    - SPC is a health-science question format
+  OpenAlex (biblio-search cannot search it yet)
+    - general multidisciplinary database, so nothing outside the specialised ones is missed
+
+PubMed equation: (Anxiety[mj:noexp] OR Depression[mj] OR anxiety[tiab] OR depress*[tiab]) AND (Caregivers[mj] OR caregiv*[tiab] OR carer*[tiab]) AND (Aged[mh] OR elder*[tiab] OR older people[tiab]) AND (burden*[tiab] OR overload*[tiab] OR strain*[tiab])
+```
+
+The rules are deterministic, so the same question always gets the same databases:
+
+- **PubMed** when the question uses MeSH headings, is written as SPC or PICO, or its
+  `discipline` is `health`.
+- **ERIC** when the `discipline` is `education` or the question uses ERIC descriptors.
+- **arXiv** when the `discipline` is `physics`, `mathematics`, `computer_science` or
+  `economics`.
+- **OpenAlex** always, as the general database that catches what falls outside the others.
+
+To choose by hand, list them in the file (`databases = ["pubmed", "openalex"]`) or pass
+`--database` once per database; the command line overrides the file, and both override the
+rules. A database chosen by hand still shows the reasons the rules would have given.
+
+Questions from other disciplines use free concepts and their own thesaurus. The education
+example is searched in ERIC and OpenAlex by default; asked to use PubMed anyway, biblio-search
+searches its ERIC descriptors as free text and warns about it:
+
+```console
+$ biblio-search build examples/peer-tutoring-reading.toml
+(peer teaching[tiab] OR "peer tutor*"[tiab] OR peer assisted learning[tiab] OR "cross age tutor*"[tiab]) AND (reading comprehension[tiab] OR "reading skill*"[tiab]) AND ("primary school*"[tiab] OR "elementary school*"[tiab])
+biblio-search: PubMed does not index these headings, so they are searched as free text: Peer Teaching (ERIC), Reading Comprehension (ERIC), Elementary School Students (ERIC)
+```
+
+Descriptors already covered by a free term (`elementary school*` covers *Elementary School
+Students*) are not repeated.
+
 ### Running the search in PubMed
 
 `search` builds the same equation, runs it through NCBI E-utilities and lists the first
-records (20 by default, up to 10,000):
+records (20 by default, up to 10,000). It searches PubMed when PubMed is among the chosen
+databases and names the chosen ones it cannot query yet:
 
 ```console
 $ biblio-search search examples/caregiver-burden.toml --max 3
+Searching in: PubMed (also chosen, not searchable yet: OpenAlex)
 Equation: (Anxiety[mj:noexp] OR Depression[mj] OR anxiety[tiab] OR depress*[tiab]) AND (Caregivers[mj] OR caregiv*[tiab] OR carer*[tiab]) AND (Aged[mh] OR elder*[tiab] OR older people[tiab]) AND (burden*[tiab] OR overload*[tiab] OR strain*[tiab])
 PubMed understood: ("anxiety"[MeSH Major Topic:noexp] OR ("depressive disorder"[MeSH Major Topic] OR "depression"[MeSH Major Topic]) OR "anxiety"[Title/Abstract] OR "depress*"[Title/Abstract]) AND ("caregivers"[MeSH Major Topic] OR "caregiv*"[Title/Abstract] OR "carer*"[Title/Abstract]) AND ("aged"[MeSH Terms] OR "elder*"[Title/Abstract] OR "older people"[Title/Abstract]) AND ("burden*"[Title/Abstract] OR "overload*"[Title/Abstract] OR "strain*"[Title/Abstract])
 Results: 2808
@@ -239,13 +299,18 @@ export NCBI_API_KEY="..."             # optional, read from the environment only
 
 ### Question file reference
 
-- `question` (string) and `format` (`spc` or `pico`) are required.
+- `question` (string) and `format` (`spc`, `pico` or `concepts`) are required.
+- `discipline` (optional): `health`, `education`, `physics`, `mathematics`,
+  `computer_science` or `economics`; it guides the automatic choice of databases.
+- `databases` (optional): `pubmed`, `eric`, `arxiv`, `openalex`; chooses them by hand.
 - `[[components]]`: `role` (`situation`, `population`, `question` for SPC; `population`,
-  `intervention`, `comparison`, `outcome` for PICO), a `description`, and zero or more
+  `intervention`, `comparison`, `outcome` for PICO; omitted for `concepts`, which can have
+  as many components as needed and keep their order), a `description`, and zero or more
   `[[components.conditions]]`.
 - A condition has a `label` and at least one term:
-  - `controlled`: strings, or `{ term, scope }` with `scope` one of `heading` (`[mh]`, default),
-    `major` (`[mj]`), `heading_no_explode` (`[mh:noexp]`), `major_no_explode` (`[mj:noexp]`).
+  - `controlled`: strings, or `{ term, scope, vocabulary }` with `scope` one of `heading`
+    (`[mh]`, default), `major` (`[mj]`), `heading_no_explode` (`[mh:noexp]`),
+    `major_no_explode` (`[mj:noexp]`), and `vocabulary` `mesh` (default) or `eric`.
   - `free`: strings, or `{ term, field }` with `field` one of `title_abstract` (`[tiab]`,
     default) or `title` (`[ti]`). A trailing `*` truncates the term.
 - `[[exclusions]]`: conditions appended with `NOT`, e.g. animal studies.
@@ -333,6 +398,9 @@ The test suite never touches the network: NCBI responses are recorded under
 - **A heading with commas is not repeated as free text**: headings such as
   *Aged, 80 and over* have no natural free-text form; add the synonyms you want under `free`.
 
+- **`none of the chosen databases can be searched yet`**: the question was routed to
+  databases biblio-search cannot query yet (an education question goes to ERIC and
+  OpenAlex). Add `--database pubmed` to search PubMed with the same equation.
 - **`check` says a heading is `not found`**: MeSH matches headings and entry terms exactly,
   so plurals, abbreviations or Spanish terms are not found. Look the concept up in the
   [MeSH Browser](https://meshb.nlm.nih.gov/) or keep it as free text.
