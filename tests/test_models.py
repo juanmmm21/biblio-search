@@ -7,11 +7,14 @@ from biblio_search.models import (
     ComponentRole,
     Condition,
     ControlledScope,
+    Database,
+    Discipline,
     QuestionError,
     QuestionFormat,
     StructuredQuestion,
     Term,
     TermKind,
+    Vocabulary,
 )
 
 
@@ -150,3 +153,66 @@ def test_question_needs_text_and_component_description() -> None:
 
 def test_default_scope_is_most_sensitive_heading() -> None:
     assert Term.controlled("Aged").scope is ControlledScope.HEADING
+
+
+def test_controlled_terms_default_to_mesh() -> None:
+    assert Term.controlled("Anxiety").vocabulary is Vocabulary.MESH
+    assert Term(text="Anxiety", kind=TermKind.CONTROLLED).vocabulary is Vocabulary.MESH
+    assert Term.free("anxiety").vocabulary is None
+
+
+def test_free_terms_have_no_vocabulary() -> None:
+    with pytest.raises(QuestionError, match="cannot belong to a vocabulary"):
+        Term(text="anxiety", kind=TermKind.FREE, vocabulary=Vocabulary.MESH)
+
+
+def test_same_heading_in_two_vocabularies_is_not_a_repetition() -> None:
+    condition = Condition(
+        "reading",
+        (
+            Term.controlled("Reading"),
+            Term.controlled("Reading", vocabulary=Vocabulary.ERIC),
+        ),
+    )
+    assert condition.controlled_in("eric") == (condition.terms[1],)
+    assert condition.controlled_in(Vocabulary.MESH) == (condition.terms[0],)
+
+
+def _concept(description: str, *terms: Term) -> Component:
+    return Component(ComponentRole.CONCEPT, description, (Condition(description, terms),))
+
+
+def test_concepts_repeat_their_role_and_keep_input_order() -> None:
+    question = StructuredQuestion(
+        "Does peer tutoring improve reading?",
+        QuestionFormat.CONCEPTS,
+        (_concept("tutoring", Term.free("tutor*")), _concept("reading", Term.free("reading"))),
+        discipline=Discipline.EDUCATION,
+    )
+    assert [c.label for c in question.conditions] == ["tutoring", "reading"]
+
+
+def test_concept_role_does_not_belong_to_spc() -> None:
+    with pytest.raises(QuestionError, match="does not belong to the spc format"):
+        StructuredQuestion("q", QuestionFormat.SPC, (_concept("x", Term.free("x")),))
+
+
+def test_question_rejects_repeated_databases() -> None:
+    with pytest.raises(QuestionError, match="database can be chosen only once"):
+        StructuredQuestion(
+            "q",
+            QuestionFormat.CONCEPTS,
+            (_concept("x", Term.free("x")),),
+            databases=(Database.PUBMED, Database.PUBMED),
+        )
+
+
+def test_question_lists_controlled_terms_of_conditions_and_exclusions() -> None:
+    animals = Term.controlled("Animals")
+    question = StructuredQuestion(
+        "q",
+        QuestionFormat.CONCEPTS,
+        (_concept("x", Term.controlled("Anxiety"), Term.free("x")),),
+        exclusions=(Condition("animals", (animals,)),),
+    )
+    assert question.controlled_terms == (Term.controlled("Anxiety"), animals)

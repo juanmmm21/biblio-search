@@ -7,10 +7,13 @@ import pytest
 from biblio_search.models import (
     ComponentRole,
     ControlledScope,
+    Database,
+    Discipline,
     FreeTextField,
     QuestionError,
     QuestionFormat,
     Term,
+    Vocabulary,
 )
 from biblio_search.question_file import load_question, parse_question
 
@@ -60,7 +63,29 @@ def _with(**changes: object) -> dict[str, object]:
 @pytest.mark.parametrize(
     ("data", "message"),
     [
-        (_with(format="peco"), "format must be one of: spc, pico"),
+        (_with(format="peco"), "format must be one of: spc, pico, concepts"),
+        (_with(discipline="biology"), "discipline must be one of: health, education"),
+        (_with(databases="pubmed"), "databases must be a list"),
+        (_with(databases=["scopus"]), r"databases\[0\] must be one of: pubmed, eric"),
+        (_with(databases=["eric", "eric"]), "database can be chosen only once"),
+        (
+            _with(
+                components=[
+                    {
+                        "role": "population",
+                        "description": "x",
+                        "conditions": [
+                            {"label": "x", "controlled": [{"term": "A", "vocabulary": "decs"}]}
+                        ],
+                    }
+                ]
+            ),
+            r"controlled\[0\].vocabulary must be one of: mesh, eric",
+        ),
+        (
+            _with(components=[{"description": "x", "conditions": []}]),
+            r"components\[0\].role must be a string",
+        ),
         (_with(question=3), "question must be a string"),
         (_with(components="population"), "components must be a list"),
         (_with(options={"verbose": True}), "unknown options: verbose"),
@@ -86,6 +111,55 @@ def _with(**changes: object) -> dict[str, object]:
 def test_parse_errors_point_to_the_offending_field(data: dict[str, object], message: str) -> None:
     with pytest.raises(QuestionError, match=message):
         parse_question(data)
+
+
+def test_parse_concepts_with_vocabularies_discipline_and_databases() -> None:
+    data: dict[str, object] = {
+        "question": "Does peer tutoring improve reading?",
+        "format": "concepts",
+        "discipline": "education",
+        "databases": ["eric", "openalex"],
+        "components": [
+            {
+                "description": "peer tutoring",
+                "conditions": [
+                    {
+                        "label": "tutoring",
+                        "controlled": [{"term": "Peer Teaching", "vocabulary": "eric"}, "Tutoring"],
+                        "free": ["peer tutor*"],
+                    }
+                ],
+            },
+            {"role": "concept", "description": "reading", "conditions": []},
+        ],
+    }
+    question, _ = parse_question(data)
+    assert question.format is QuestionFormat.CONCEPTS
+    assert [c.role for c in question.components] == [ComponentRole.CONCEPT] * 2
+    assert question.discipline is Discipline.EDUCATION
+    assert question.databases == (Database.ERIC, Database.OPENALEX)
+    assert question.conditions[0].controlled_terms == (
+        Term.controlled("Peer Teaching", vocabulary=Vocabulary.ERIC),
+        Term.controlled("Tutoring"),
+    )
+
+
+def test_files_without_new_fields_keep_their_meaning() -> None:
+    question, _ = parse_question(MINIMAL)
+    assert question.discipline is None
+    assert question.databases == ()
+    assert question.conditions[0].terms[0].vocabulary is Vocabulary.MESH
+
+
+def test_load_education_example() -> None:
+    example = Path(__file__).resolve().parents[1] / "examples" / "peer-tutoring-reading.toml"
+    question, _ = load_question(example)
+    assert [c.label for c in question.conditions] == [
+        "peer tutoring",
+        "reading comprehension",
+        "primary school",
+    ]
+    assert {t.vocabulary for t in question.controlled_terms} == {Vocabulary.ERIC}
 
 
 def test_load_reports_missing_file(tmp_path: Path) -> None:
