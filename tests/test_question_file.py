@@ -15,7 +15,13 @@ from biblio_search.models import (
     Term,
     Vocabulary,
 )
-from biblio_search.question_file import load_question, parse_question
+from biblio_search.question_file import (
+    dump_question,
+    load_question,
+    parse_question,
+    parse_question_text,
+    question_to_data,
+)
 
 MINIMAL: dict[str, object] = {
     "question": "Does exercise reduce falls in older adults?",
@@ -172,3 +178,60 @@ def test_load_reports_invalid_toml(tmp_path: Path) -> None:
     path.write_text("question = ", encoding="utf-8")
     with pytest.raises(QuestionError, match="not valid TOML"):
         load_question(path)
+
+
+EXAMPLES = Path(__file__).parent.parent / "examples"
+
+
+@pytest.mark.parametrize("name", ["caregiver-burden.toml", "peer-tutoring-reading.toml"])
+def test_dump_question_round_trips_the_examples(name: str) -> None:
+    question, options = load_question(EXAMPLES / name)
+    assert parse_question_text(dump_question(question, options)) == (question, options)
+
+
+def test_dump_question_round_trips_every_option() -> None:
+    question, options = parse_question(MINIMAL)
+    text = dump_question(question, options)
+    assert parse_question_text(text) == (question, options)
+    assert "[options]\nrepeat_controlled_as_free = true\n" in text
+    assert '{ term = "older adult*", field = "title" }' in text
+
+
+def test_question_to_data_omits_defaults() -> None:
+    question, options = parse_question(MINIMAL)
+    data = question_to_data(question, options)
+    population = data["components"]
+    assert isinstance(population, list)
+    condition = population[0]["conditions"][0]
+    assert condition["controlled"] == [{"term": "Aged", "scope": "heading_no_explode"}]
+    assert condition["free"][0] == "elder*"
+    assert population[1] == {"role": "comparison", "description": "usual care"}
+    assert data["exclusions"] == [{"label": "animals", "controlled": ["Animals"]}]
+    assert "discipline" not in data
+    assert "databases" not in data
+
+
+def test_question_to_data_keeps_discipline_databases_and_vocabularies() -> None:
+    question, options = load_question(EXAMPLES / "peer-tutoring-reading.toml")
+    data = question_to_data(question, options)
+    assert data["discipline"] == "education"
+    assert "options" not in data
+    components = data["components"]
+    assert isinstance(components, list)
+    assert "role" not in components[0]
+    assert components[0]["conditions"][0]["controlled"] == [
+        {"term": "Peer Teaching", "vocabulary": "eric"}
+    ]
+
+
+def test_dump_question_escapes_strings() -> None:
+    data = dict(MINIMAL, question='Is "exercise"\tbetter\\worse?\nReally\x01')
+    question, options = parse_question(data)
+    text = dump_question(question, options)
+    assert parse_question_text(text)[0].text == question.text
+    assert '\\"exercise\\"\\tbetter\\\\worse?\\nReally\\u0001' in text
+
+
+def test_parse_question_text_reports_bad_toml() -> None:
+    with pytest.raises(QuestionError, match="not valid TOML"):
+        parse_question_text("question = ")
