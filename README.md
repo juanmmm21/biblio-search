@@ -34,12 +34,15 @@ University of Jaén) in *"Cómo aprender (y enseñar) a realizar búsquedas en C
    must satisfy; conditions are joined with **AND**.
 3. **Fill every condition with terms.** Controlled headings (MeSH) plus free-text synonyms
    with truncation; the terms of a condition are alternatives joined with **OR**.
-4. **Tag every term.** Headings get `[mh]`, `[mj]`, `[mh:noexp]` or `[mj:noexp]`, from most to
+4. **Confirm the headings in the thesaurus.** A MeSH heading is only useful if it exists:
+   biblio-search looks every controlled term up in NCBI's MeSH database, points entry terms
+   to their descriptor and searches anything that is not a heading as free text.
+5. **Tag every term.** Headings get `[mh]`, `[mj]`, `[mh:noexp]` or `[mj:noexp]`, from most to
    least sensitive; free text gets `[tiab]` or `[ti]`.
-5. **Tune sensitivity and specificity.** Repeat headings as free text to catch records not
+6. **Tune sensitivity and specificity.** Repeat headings as free text to catch records not
    yet indexed, or limit free text to non-MEDLINE records with `NOT MEDLINE[sb]` for a more
    specific search.
-6. **Run it and read what the database understood.** biblio-search sends the equation to
+7. **Run it and read what the database understood.** biblio-search sends the equation to
    PubMed through NCBI E-utilities and shows the record count, PubMed's own translation of
    the query, any term it did not recognise and the first records to screen.
 
@@ -55,6 +58,11 @@ University of Jaén) in *"Cómo aprender (y enseñar) a realizar búsquedas en C
 - **PubMed is never trusted blindly.** PubMed silently remaps headings and drops broken
   syntax (an unbalanced parenthesis simply disappears). Every search prints the query
   translation and surfaces NCBI's `phrasesnotfound` and warning lists.
+- **Headings are checked, never assumed.** `check` confirms every controlled term against
+  the MeSH database (`db=mesh`), maps entry terms such as *Carers* to their descriptor
+  (*Caregivers*), discards subheadings that share the index, and rewrites MeSH entry terms
+  into the natural, comma-free synonyms an author would actually write. The lookup sits
+  behind a `Thesaurus` protocol so other vocabularies can plug in.
 - **A polite async client.** The E-utilities client is built on `httpx.AsyncClient`, spaces
   requests to NCBI's quota (3 per second, 10 with an API key), always identifies the tool,
   retries 429/5xx and network errors with backoff (honouring `Retry-After`, including NCBI's
@@ -72,13 +80,15 @@ University of Jaén) in *"Cómo aprender (y enseñar) a realizar búsquedas en C
 biblio-search/
 ├── src/biblio_search/
 │   ├── models.py         # SPC/PICO question, components, conditions, terms, strategy options
-│   ├── protocols.py      # QueryDialect interface
+│   ├── protocols.py      # QueryDialect and Thesaurus interfaces
 │   ├── pubmed_query.py   # PubMed field tags, quoting rules and equation assembly
 │   ├── question_file.py  # TOML question files -> validated domain objects
 │   ├── ratelimit.py      # async requests-per-second limiter
 │   ├── eutils.py         # NCBI E-utilities client (esearch, esummary) and response parsing
+│   ├── mesh.py           # MeSH lookups through E-utilities (db=mesh)
+│   ├── check.py          # heading checks, synonym suggestions, unknown terms to free text
 │   ├── pipeline.py       # question -> equation -> search -> records to screen
-│   └── __main__.py       # command line interface (build, search)
+│   └── __main__.py       # command line interface (build, check, search)
 ├── examples/
 │   └── caregiver-burden.toml   # worked example from Del Pino (2017)
 └── tests/                # unit tests and recorded NCBI fixtures, no network access
@@ -163,6 +173,39 @@ $ biblio-search build examples/caregiver-burden.toml --unindexed-only --repeat-c
 The MEDLINE filter is only applied to conditions that also have headings, so a free-text-only
 condition never loses the indexed records. Avoid it for systematic reviews, which need the
 extra sensitivity.
+
+### Checking headings against MeSH
+
+`check` looks up every controlled term in NCBI's MeSH database before you search:
+
+```console
+$ biblio-search check examples/caregiver-burden.toml
+MeSH check of 4 controlled terms
+  ok          Anxiety (D001007) [anxiety or depression]
+  ok          Depression (D003863) [anxiety or depression]
+  ok          Caregivers (D017028) [caregivers]
+  ok          Aged (D000368) [older people]
+              also retrieves its narrower headings; use a no_explode scope to leave them out
+
+Synonyms you could add as free text:
+  anxiety or depression: Angst, Nervousness, Hypervigilance, Social Anxiety, Anxiousness, Emotional Depression
+  caregivers: Care Givers, Family Caregivers, Spouse Caregivers, Informal Caregivers
+
+Equation after the check: (Anxiety[mj:noexp] OR Depression[mj] OR anxiety[tiab] OR depress*[tiab]) AND (Caregivers[mj] OR caregiv*[tiab] OR carer*[tiab]) AND (Aged[mh] OR elder*[tiab] OR older people[tiab]) AND (burden*[tiab] OR overload*[tiab] OR strain*[tiab])
+```
+
+- **ok**: the term is a MeSH descriptor. A note tells you when the scope matters: a heading
+  with narrower headings explodes unless you pick a `*_no_explode` scope, and a no-explode
+  scope on a heading without narrower ones changes nothing.
+- **entry term**: the text is a synonym of a descriptor (`Carers -> Caregivers (D017028)`);
+  the corrected equation uses the descriptor.
+- **not found**: the text is not a MeSH heading, so it is searched as free text instead of
+  silently matching nothing as `[mh]`.
+
+Suggested synonyms come from the descriptor's entry terms, put back in natural order
+(*Depression, Emotional* becomes *Emotional Depression*) and left out when a free term you
+already have covers them (`caregiv*` covers *Caregiver*). Nothing is written to your file:
+copy the ones that fit your question.
 
 ### Running the search in PubMed
 
@@ -290,6 +333,9 @@ The test suite never touches the network: NCBI responses are recorded under
 - **A heading with commas is not repeated as free text**: headings such as
   *Aged, 80 and over* have no natural free-text form; add the synonyms you want under `free`.
 
+- **`check` says a heading is `not found`**: MeSH matches headings and entry terms exactly,
+  so plurals, abbreviations or Spanish terms are not found. Look the concept up in the
+  [MeSH Browser](https://meshb.nlm.nih.gov/) or keep it as free text.
 - **`NCBI ... failed after 4 attempts: HTTP 429`**: too many requests from your IP, often
   several tools sharing one connection. Wait a minute, or set `NCBI_API_KEY`.
 - **`Warning: (` or a translation shorter than the equation**: PubMed dropped part of the
