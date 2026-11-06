@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>biblio-search</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Ctext x=%2716%27 y=%2725%27 font-size=%2726%27 text-anchor=%27middle%27 fill=%27%230f5c63%27 font-family=%27Georgia%27%3E§%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">§</span>
+      <span class="brand-name">biblio-search</span>
+      <span class="brand-sub">structured question → search strategy</span>
+    </div>
+    <div class="topbar-actions">
+      <label class="button ghost" for="import-file">Import TOML</label>
+      <input type="file" id="import-file" accept=".toml,text/plain" hidden>
+      <button type="button" class="button ghost" id="export-button">Export TOML</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <div class="workspace">
+    <section class="editor" aria-label="Question">
+      <div class="panel">
+        <h2 class="panel-title">Question</h2>
+        <label class="field">
+          <span class="field-label">What do you want to find out?</span>
+          <textarea id="question-text" rows="3" placeholder="e.g. What is the relationship between burden and anxiety in family caregivers of older people?"></textarea>
+        </label>
+        <div class="field-row">
+          <label class="field">
+            <span class="field-label">Format</span>
+            <select id="question-format">
+              <option value="spc">SPC</option>
+              <option value="pico">PICO</option>
+              <option value="concepts">Free concepts (any field)</option>
+            </select>
+          </label>
+          <label class="field">
+            <span class="field-label">Discipline</span>
+            <select id="question-discipline">
+              <option value="">Not set</option>
+              <option value="health">Health</option>
+              <option value="education">Education</option>
+              <option value="physics">Physics</option>
+              <option value="mathematics">Mathematics</option>
+              <option value="computer_science">Computer science</option>
+              <option value="economics">Economics</option>
+            </select>
+          </label>
+        </div>
+        <fieldset class="field databases-field">
+          <legend class="field-label">Databases <span class="hint">leave all unticked to choose them automatically</span></legend>
+          <div class="checks" id="database-checks"></div>
+        </fieldset>
+      </div>
+
+      <div id="components"></div>
+
+      <div class="panel">
+        <h2 class="panel-title">Exclusions <span class="hint">joined with NOT</span></h2>
+        <div id="exclusions"></div>
+        <button type="button" class="button small" id="add-exclusion">+ Exclusion</button>
+      </div>
+
+      <div class="panel">
+        <h2 class="panel-title">Sensitivity and specificity</h2>
+        <label class="check">
+          <input type="checkbox" id="opt-repeat">
+          <span>Also search every heading as free text <span class="hint">more sensitive: finds records not indexed yet</span></span>
+        </label>
+        <label class="check">
+          <input type="checkbox" id="opt-unindexed">
+          <span>Free text only outside MEDLINE <span class="hint">more specific; not advised for systematic reviews</span></span>
+        </label>
+      </div>
+    </section>
+
+    <section class="preview" aria-label="Strategy">
+      <div class="banner error" id="preview-error" hidden></div>
+
+      <div class="panel" id="equation-panel">
+        <div class="panel-head">
+          <h2 class="panel-title">Search equation</h2>
+          <button type="button" class="button small" id="check-button">Check MeSH headings</button>
+        </div>
+        <div id="equations"><p class="empty">The equation appears here as you write the question.</p></div>
+      </div>
+
+      <div class="panel" id="check-panel" hidden>
+        <div class="panel-head">
+          <h2 class="panel-title">Thesaurus check</h2>
+          <button type="button" class="button small primary" id="apply-check">Apply corrections</button>
+        </div>
+        <div id="check-result"></div>
+      </div>
+
+      <div class="panel">
+        <h2 class="panel-title">Logic grid <span class="hint">OR inside a row, AND between rows</span></h2>
+        <div id="grid"><p class="empty">No conditions yet.</p></div>
+      </div>
+
+      <div class="panel">
+        <h2 class="panel-title">Databases</h2>
+        <div id="selection"><p class="empty">No question yet.</p></div>
+      </div>
+
+      <div class="panel">
+        <h2 class="panel-title">Question tree</h2>
+        <div id="tree"><p class="empty">No question yet.</p></div>
+      </div>
+    </section>
+    </div>
+
+    <section class="results" aria-label="Search">
+      <div class="panel">
+        <div class="panel-head">
+          <h2 class="panel-title">Search</h2>
+          <div class="search-controls">
+            <label class="inline">Records to list
+              <input type="number" id="max-records" min="0" max="10000" value="20">
+            </label>
+            <button type="button" class="button primary" id="search-button">Search</button>
+          </div>
+        </div>
+        <ol class="progress" id="progress"></ol>
+        <div id="counts"></div>
+        <ol class="records" id="records"></ol>
+      </div>
+    </section>
+  </main>
+
+  <template id="tpl-component">
+    <div class="panel component">
+      <div class="panel-head">
+        <h2 class="panel-title"><span class="role-pill"></span></h2>
+        <button type="button" class="button small ghost remove-component">Remove concept</button>
+      </div>
+      <label class="field">
+        <span class="field-label">Description</span>
+        <input type="text" class="component-description">
+      </label>
+      <div class="conditions"></div>
+      <button type="button" class="button small add-condition">+ Condition</button>
+    </div>
+  </template>
+
+  <template id="tpl-condition">
+    <div class="condition">
+      <div class="condition-head">
+        <input type="text" class="condition-label" placeholder="Condition label, e.g. caregivers">
+        <button type="button" class="icon-button remove-condition" title="Remove condition" aria-label="Remove condition">×</button>
+      </div>
+      <div class="terms"></div>
+      <div class="term-actions">
+        <button type="button" class="button small add-heading">+ Heading</button>
+        <button type="button" class="button small add-free">+ Free text</button>
+      </div>
+    </div>
+  </template>
+
+  <template id="tpl-term">
+    <div class="term-row">
+      <select class="term-kind" aria-label="Term type">
+        <option value="mesh">MeSH</option>
+        <option value="eric">ERIC</option>
+        <option value="free">Free text</option>
+      </select>
+      <input type="text" class="term-text" placeholder="Term">
+      <select class="term-option" aria-label="How the term is searched"></select>
+      <button type="button" class="icon-button remove-term" title="Remove term" aria-label="Remove term">×</button>
+    </div>
+  </template>
+</body>
+</html>
