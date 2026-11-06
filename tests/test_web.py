@@ -11,10 +11,13 @@ from conftest import load_fixture, mesh_fixture_for
 from fastapi.testclient import TestClient
 
 import biblio_search.web as web
+from biblio_search import openalex
 from biblio_search.__main__ import main
 from biblio_search.eutils import EutilsError, parse_search, parse_summaries
-from biblio_search.models import ArticleSummary, SearchResult
-from biblio_search.web.app import NcbiClient, create_app
+from biblio_search.models import ArticleSummary, Database, SearchResult
+from biblio_search.openalex import OpenAlexError
+from biblio_search.pipeline import SearchBackend
+from biblio_search.web.app import BackendFactory, NcbiClient, create_app
 from biblio_search.web.server import bind_local
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
@@ -47,16 +50,49 @@ class FakeNcbi:
         return mesh_fixture_for(endpoint, params)
 
 
+class FakeOpenAlex:
+    """Recorded OpenAlex answers for the caregiver search."""
+
+    def __init__(self, search_error: OpenAlexError | None = None) -> None:
+        self.search_error = search_error
+        self.searched: list[str] = []
+
+    async def search(self, term: str, *, retmax: int = 20, retstart: int = 0) -> SearchResult:
+        if self.search_error is not None:
+            raise self.search_error
+        self.searched.append(term)
+        result = openalex.parse_search(load_fixture("openalex_search_caregiver.json"))
+        return SearchResult(result.count, result.ids[:retmax], result.query_translation)
+
+    async def summaries(self, ids: Sequence[str], /) -> tuple[ArticleSummary, ...]:
+        works = load_fixture("openalex_works_caregiver.json")["results"]
+        assert isinstance(works, list)
+        by_id = {record.record_id: record for record in map(openalex.parse_work, works)}
+        return tuple(by_id[work_id] for work_id in ids)
+
+
 def make_client(
-    fake: FakeNcbi | None = None, initial: Mapping[str, object] | None = None
+    fake: FakeNcbi | None = None,
+    initial: Mapping[str, object] | None = None,
+    other: SearchBackend | None = None,
+    *,
+    with_openalex: bool = True,
 ) -> TestClient:
     ncbi = fake or FakeNcbi()
+    openalex_backend = other or FakeOpenAlex()
 
     @asynccontextmanager
     async def open_client() -> AsyncIterator[NcbiClient]:
         yield ncbi
 
-    return TestClient(create_app(open_client, initial), base_url=BASE_URL)
+    @asynccontextmanager
+    async def open_openalex() -> AsyncIterator[SearchBackend]:
+        yield openalex_backend
+
+    backends: dict[Database, BackendFactory] = (
+        {Database.OPENALEX: open_openalex} if with_openalex else {}
+    )
+    return TestClient(create_app(open_client, initial, backends), base_url=BASE_URL)
 
 
 @pytest.fixture
@@ -114,12 +150,27 @@ def test_preview_draws_tree_grid_databases_and_equation(client: TestClient) -> N
     assert selection["mode"] == "automatic"
     assert [(c["database"], c["searchable"]) for c in selection["choices"]] == [
         ("pubmed", True),
+        ("openalex", True),
+    ]
+    pubmed, openalex_equation = preview["equations"]
+    assert pubmed["database"] == "pubmed"
+    assert pubmed["equation"].startswith("(Anxiety[mj:noexp] OR Depression[mj]")
+    assert pubmed["notes"] == []
+    assert openalex_equation["label"] == "OpenAlex"
+    assert openalex_equation["equation"].startswith("(anxiety OR depress*) AND")
+    assert "Caregivers (MeSH)" in openalex_equation["notes"][0]
+
+
+def test_without_an_openalex_client_it_is_not_searchable() -> None:
+    with make_client(with_openalex=False) as test_client:
+        preview = test_client.post("/api/preview", json=example_data()).json()
+        events = sse_events(test_client.post("/api/search", json={"question": example_data()}).text)
+    assert [(c["database"], c["searchable"]) for c in preview["selection"]["choices"]] == [
+        ("pubmed", True),
         ("openalex", False),
     ]
-    [equation] = preview["equations"]
-    assert equation["database"] == "pubmed"
-    assert equation["equation"].startswith("(Anxiety[mj:noexp] OR Depression[mj]")
-    assert equation["note"] is None
+    assert ("skipped", {"database": "openalex", "label": "OpenAlex"}) in events
+    assert events[-1] == ("done", {})
 
 
 def test_preview_notes_headings_searched_as_free_text(client: TestClient) -> None:
@@ -130,7 +181,7 @@ def test_preview_notes_headings_searched_as_free_text(client: TestClient) -> Non
 
     assert preview["selection"]["mode"] == "manual"
     [equation] = preview["equations"]
-    assert "Peer Teaching (ERIC)" in equation["note"]
+    assert "Peer Teaching (ERIC)" in equation["notes"][0]
 
 
 def test_preview_reports_the_field_that_is_wrong(client: TestClient) -> None:
@@ -250,7 +301,8 @@ def test_check_reports_ncbi_failures_as_bad_gateway() -> None:
 
 def test_search_streams_each_step() -> None:
     fake = FakeNcbi()
-    with make_client(fake) as test_client:
+    other = FakeOpenAlex()
+    with make_client(fake, other=other) as test_client:
         response = test_client.post(
             "/api/search", json={"question": example_data(), "max_records": 3}
         )
@@ -260,22 +312,46 @@ def test_search_streams_each_step() -> None:
     events = sse_events(response.text)
     assert [name for name, _ in events] == [
         "selection",
-        "skipped",
+        "equation",
+        "count",
+        "records",
         "equation",
         "count",
         "records",
         "done",
     ]
-    data = dict(events)
-    assert data["skipped"] == {"database": "openalex", "label": "OpenAlex"}
-    assert data["equation"]["equation"] == fake.searched[0][0]
+    by_database: dict[object, dict[str, dict[str, object]]] = {}
+    for name, data in events[1:-1]:
+        by_database.setdefault(data["database"], {})[name] = data
+    pubmed = by_database["pubmed"]
+    assert pubmed["equation"]["equation"] == fake.searched[0][0]
     assert fake.searched[0][1] == 3
-    assert data["count"]["count"] == 2808
-    assert data["count"]["translation"]
-    records = data["records"]["records"]
+    assert pubmed["count"]["count"] == 2808
+    assert pubmed["count"]["label"] == "PubMed"
+    assert pubmed["count"]["translation"]
+    records = pubmed["records"]["records"]
     assert isinstance(records, list)
     assert len(records) == 3
+    assert records[0]["id_label"] == "PMID"
     assert records[0]["url"] == f"https://pubmed.ncbi.nlm.nih.gov/{records[0]['id']}/"
+    found = by_database["openalex"]
+    assert found["equation"]["equation"] == other.searched[0]
+    assert found["count"]["count"] == 2516
+    assert found["count"]["label"] == "OpenAlex"
+    works = found["records"]["records"]
+    assert isinstance(works, list)
+    assert [w["id"] for w in works] == ["W2145256182", "W4391296183", "W1923367678"]
+    assert works[0]["id_label"] == "OpenAlex"
+    assert works[0]["url"] == "https://openalex.org/W2145256182"
+    assert works[0]["doi"] == "10.1093/ageing/afq053"
+
+
+def test_openalex_errors_arrive_after_the_pubmed_results() -> None:
+    broken = FakeOpenAlex(OpenAlexError("OpenAlex rejected the request (HTTP 400)"))
+    with make_client(other=broken) as test_client:
+        response = test_client.post("/api/search", json={"question": example_data()})
+    names = [name for name, _ in sse_events(response.text)]
+    assert names == ["selection", "equation", "count", "records", "equation", "error"]
 
 
 def test_search_errors_arrive_as_events() -> None:
@@ -288,11 +364,12 @@ def test_search_errors_arrive_as_events() -> None:
 
 def test_search_needs_a_searchable_database(client: TestClient) -> None:
     data = example_data()
-    data["databases"] = ["openalex"]
+    data["databases"] = ["eric"]
 
     events = sse_events(client.post("/api/search", json={"question": data}).text)
 
     assert [name for name, _ in events] == ["selection", "skipped", "error"]
+    assert "choose OpenAlex or PubMed" in str(events[-1][1]["message"])
 
 
 def test_search_reports_invalid_questions_as_events(client: TestClient) -> None:

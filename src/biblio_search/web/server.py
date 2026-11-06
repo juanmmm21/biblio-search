@@ -9,7 +9,9 @@ from collections.abc import Mapping
 import uvicorn
 
 from biblio_search.eutils import EutilsClient, EutilsConfig
-from biblio_search.web.app import create_app
+from biblio_search.models import Database
+from biblio_search.openalex import OpenAlexClient, OpenAlexConfig
+from biblio_search.web.app import BackendFactory, create_app
 
 HOST = "127.0.0.1"
 
@@ -38,7 +40,11 @@ def serve(
     def open_client() -> EutilsClient:
         return EutilsClient(config)
 
-    app = create_app(open_client, initial_question)
+    def open_openalex() -> OpenAlexClient:
+        return OpenAlexClient(OpenAlexConfig.from_env())
+
+    backends: dict[Database, BackendFactory] = {Database.OPENALEX: open_openalex}
+    app = create_app(open_client, initial_question, backends)
     sock = bind_local(port)
     try:
         url = f"http://{HOST}:{sock.getsockname()[1]}/"

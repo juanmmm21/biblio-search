@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import sys
 from collections.abc import Sequence
+from contextlib import AbstractAsyncContextManager
 from dataclasses import replace
 from pathlib import Path
 
@@ -13,24 +14,27 @@ from biblio_search import __version__
 from biblio_search.catalog import (
     DATABASE_LABELS,
     DIALECTS,
+    RECORD_ID_LABELS,
     SEARCHABLE,
     VOCABULARY_LABELS,
-    foreign_note,
+    dialect_notes,
     heading_label,
 )
 from biblio_search.check import QuestionCheck, apply_check, check_question, scope_note
-from biblio_search.eutils import MAX_RETMAX, EutilsClient, EutilsConfig, EutilsError
+from biblio_search.eutils import MAX_RETMAX, EutilsClient, EutilsConfig
 from biblio_search.mesh import MeshThesaurus
 from biblio_search.models import (
     ArticleSummary,
     Database,
+    DatabaseError,
     QuestionError,
     StrategyOptions,
     StructuredQuestion,
     TermCheck,
     TermStatus,
 )
-from biblio_search.pipeline import SearchReport, run_search
+from biblio_search.openalex import OpenAlexClient, OpenAlexConfig
+from biblio_search.pipeline import SearchBackend, SearchReport, run_search
 from biblio_search.question_file import load_question, question_to_data
 from biblio_search.selection import DatabaseSelection, SelectionMode, select_databases
 
@@ -89,7 +93,7 @@ def _build_parser() -> argparse.ArgumentParser:
     search = commands.add_parser(
         "search",
         parents=[question, choose],
-        help="run the equation in PubMed and list the first records",
+        help="run the equation in every chosen database and list the first records",
     )
     search.add_argument(
         "--max", type=_max_records, default=20, dest="max_records", help="records to list"
@@ -158,26 +162,26 @@ def _merge_options(file_options: StrategyOptions, args: argparse.Namespace) -> S
     )
 
 
-def format_record(position: int, record: ArticleSummary) -> str:
+def format_record(position: int, record: ArticleSummary, id_label: str = "PMID") -> str:
     year = str(record.year) if record.year is not None else "n.d."
     types = f" [{', '.join(record.publication_types)}]" if record.publication_types else ""
-    return (
-        f"{position:>3}. PMID {record.record_id} ({year}) {record.title} | {record.journal}{types}"
-    )
+    journal = f" | {record.journal}" if record.journal else ""
+    return f"{position:>3}. {id_label} {record.record_id} ({year}) {record.title}{journal}{types}"
 
 
-def format_report(report: SearchReport) -> str:
+def format_report(database: Database, report: SearchReport) -> str:
     result = report.result
-    lines = [
-        f"Equation: {report.equation}",
-        f"PubMed understood: {result.query_translation}",
-        f"Results: {result.count}",
-    ]
+    label = DATABASE_LABELS[database]
+    lines = [label, f"Equation: {report.equation}"]
+    if result.query_translation:
+        lines.append(f"{label} understood: {result.query_translation}")
+    lines.append(f"Results: {result.count}")
     lines += [f"Not found: {term}" for term in result.not_found]
     lines += [f"Warning: {message}" for message in result.warnings]
     if report.records:
+        id_label = RECORD_ID_LABELS[database]
         lines.append("")
-        lines += [format_record(i, r) for i, r in enumerate(report.records, start=1)]
+        lines += [format_record(i, r, id_label) for i, r in enumerate(report.records, start=1)]
     return "\n".join(lines)
 
 
@@ -235,14 +239,15 @@ def format_selection(
         lines.append(f"  {label}{state}")
         lines += [f"    - {reason}" for reason in choice.reasons]
     if not selection.searchable:
-        lines += ["", "None of them can be searched yet; add --database pubmed to use PubMed."]
+        lines += ["", f"None of them can be searched yet; {_SEARCHABLE_HINT}."]
     for database in selection.searchable:
         dialect = DIALECTS[database]
         lines += ["", f"{DATABASE_LABELS[database]} equation: {dialect.render(question, options)}"]
-        note = foreign_note(question, dialect)
-        if note:
-            lines.append(f"Note: {note}")
+        lines += [f"Note: {note}" for note in dialect_notes(question, dialect)]
     return "\n".join(lines)
+
+
+_SEARCHABLE_HINT = "add --database pubmed or --database openalex to search one that can be"
 
 
 def _config(args: argparse.Namespace) -> EutilsConfig:
@@ -251,28 +256,41 @@ def _config(args: argparse.Namespace) -> EutilsConfig:
 
 
 def _searched_in(selection: DatabaseSelection) -> str:
-    pending = selection.pending
-    if Database.PUBMED not in selection.searchable:
-        names = ", ".join(DATABASE_LABELS[d] for d in pending)
+    pending = ", ".join(DATABASE_LABELS[d] for d in selection.pending)
+    if not selection.searchable:
         raise QuestionError(
-            f"none of the chosen databases can be searched yet ({names}); "
-            "add --database pubmed to search PubMed"
+            f"none of the chosen databases can be searched yet ({pending}); {_SEARCHABLE_HINT}"
         )
-    line = "Searching in: PubMed"
+    line = f"Searching in: {', '.join(DATABASE_LABELS[d] for d in selection.searchable)}"
     if pending:
-        line += (
-            f" (also chosen, not searchable yet: {', '.join(DATABASE_LABELS[d] for d in pending)})"
-        )
+        line += f" (also chosen, not searchable yet: {pending})"
     return line
 
 
+def _open_backend(
+    database: Database, args: argparse.Namespace
+) -> AbstractAsyncContextManager[SearchBackend]:
+    if database is Database.PUBMED:
+        return EutilsClient(_config(args))
+    if database is Database.OPENALEX:
+        return OpenAlexClient(OpenAlexConfig.from_env())
+    raise QuestionError(f"biblio-search cannot search {DATABASE_LABELS[database]} yet")
+
+
 async def _search(
-    question: StructuredQuestion, options: StrategyOptions, args: argparse.Namespace
-) -> SearchReport:
-    async with EutilsClient(_config(args)) as client:
-        return await run_search(
-            question, options, DIALECTS[Database.PUBMED], client, max_records=args.max_records
-        )
+    question: StructuredQuestion,
+    options: StrategyOptions,
+    databases: Sequence[Database],
+    args: argparse.Namespace,
+) -> list[tuple[Database, SearchReport]]:
+    reports: list[tuple[Database, SearchReport]] = []
+    for database in databases:
+        async with _open_backend(database, args) as backend:
+            report = await run_search(
+                question, options, DIALECTS[database], backend, max_records=args.max_records
+            )
+        reports.append((database, report))
+    return reports
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -285,8 +303,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "build":
             dialect = DIALECTS[Database(args.dialect)]
             print(dialect.render(question, options))
-            note = foreign_note(question, dialect)
-            if note:
+            for note in dialect_notes(question, dialect):
                 print(f"biblio-search: {note}", file=sys.stderr)
             return 0
         if args.command == "check":
@@ -300,13 +317,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(format_selection(selection, question, options))
             return 0
         searched_in = _searched_in(selection)
-        report = asyncio.run(_search(question, options, args))
-        print(f"{searched_in}\n{format_report(report)}")
+        reports = asyncio.run(_search(question, options, selection.searchable, args))
+        print("\n\n".join([searched_in] + [format_report(db, r) for db, r in reports]))
         return 0
     except QuestionError as exc:
         print(f"biblio-search: {exc}", file=sys.stderr)
         return 2
-    except (EutilsError, ValueError) as exc:
+    except (DatabaseError, ValueError) as exc:
         print(f"biblio-search: {exc}", file=sys.stderr)
         return 1
 

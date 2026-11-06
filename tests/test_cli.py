@@ -11,6 +11,7 @@ from biblio_search.__main__ import format_check, format_record, main
 from biblio_search.check import QuestionCheck
 from biblio_search.eutils import EutilsClient, EutilsConfig
 from biblio_search.models import ArticleSummary, Term, Vocabulary
+from biblio_search.openalex import OpenAlexClient, OpenAlexConfig
 from biblio_search.ratelimit import RateLimiter
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
@@ -59,6 +60,31 @@ def _patch_client(monkeypatch: pytest.MonkeyPatch, seen: list[httpx.Request]) ->
         )
 
     monkeypatch.setattr(cli, "EutilsClient", factory)
+    _patch_openalex(monkeypatch, seen)
+
+
+def _patch_openalex(monkeypatch: pytest.MonkeyPatch, seen: list[httpx.Request]) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        name = (
+            "openalex_works_caregiver.json"
+            if "filter" in request.url.params
+            else "openalex_search_caregiver.json"
+        )
+        return httpx.Response(200, json=load_fixture(name))
+
+    async def no_wait(_: float) -> None:
+        return None
+
+    def factory(config: OpenAlexConfig) -> OpenAlexClient:
+        return OpenAlexClient(
+            config,
+            transport=httpx.MockTransport(handler),
+            limiter=RateLimiter(1000, sleep=no_wait),
+            sleep=no_wait,
+        )
+
+    monkeypatch.setattr(cli, "OpenAlexClient", factory)
 
 
 def test_search_prints_report(
@@ -72,13 +98,24 @@ def test_search_prints_report(
     assert main(["search", str(EXAMPLE), "--max", "3", "--email", "flag@example.org"]) == 0
 
     out = capsys.readouterr().out
-    assert out.startswith("Searching in: PubMed (also chosen, not searchable yet: OpenAlex)\n")
-    assert "Results: 2808" in out
-    assert "PubMed understood: (" in out
-    assert "  1. PMID 42970524 (2026) Music-Based Interventions" in out
-    assert "[Journal Article, Review]" in out
+    pubmed, openalex = out.split("\n\nOpenAlex\n")
+    assert pubmed.startswith("Searching in: PubMed, OpenAlex\n\nPubMed\nEquation: (")
+    assert "Results: 2808" in pubmed
+    assert "PubMed understood: (" in pubmed
+    assert "  1. PMID 42970524 (2026) Music-Based Interventions" in pubmed
+    assert "[Journal Article, Review]" in pubmed
+    assert openalex.startswith("Equation: (anxiety OR depress*) AND")
+    assert "OpenAlex understood: get works with" in openalex
+    assert "Results: 2516" in openalex
+    assert "  1. OpenAlex W2145256182 (2010) Associations between drug burden" in openalex
+    assert "| Age and Ageing [article]" in openalex
     assert seen[0].url.params["email"] == "flag@example.org"
     assert seen[0].url.params["retmax"] == "3"
+    openalex_calls = [r for r in seen if r.url.host == "api.openalex.org"]
+    assert len(openalex_calls) == 2
+    assert openalex_calls[1].url.params["filter"] == (
+        "ids.openalex:W2145256182|W4391296183|W1923367678"
+    )
 
 
 def test_search_reports_ncbi_errors(
@@ -90,7 +127,7 @@ def test_search_reports_ncbi_errors(
         )
 
     monkeypatch.setattr(cli, "EutilsClient", failing)
-    assert main(["search", str(EXAMPLE)]) == 1
+    assert main(["search", str(EXAMPLE), "--database", "pubmed"]) == 1
     assert "HTTP 400" in capsys.readouterr().err
 
 
@@ -100,9 +137,23 @@ def test_search_rejects_out_of_range_max(capsys: pytest.CaptureFixture[str]) -> 
     assert "between 0 and 10000" in capsys.readouterr().err
 
 
-def test_format_record_without_year_or_types() -> None:
+def test_search_reports_openalex_errors(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def rejecting(config: OpenAlexConfig) -> OpenAlexClient:
+        answer = httpx.Response(400, json=load_fixture("openalex_error_wildcard.json"))
+        return OpenAlexClient(config, transport=httpx.MockTransport(lambda _: answer))
+
+    monkeypatch.setattr(cli, "OpenAlexClient", rejecting)
+    assert main(["search", str(EXAMPLE), "--database", "openalex"]) == 1
+    assert "OpenAlex rejected the request (HTTP 400): Wildcards" in capsys.readouterr().err
+
+
+def test_format_record_without_year_journal_or_types() -> None:
     record = ArticleSummary("1", "Title.", (), "Journal", None, None, (), "https://x")
     assert format_record(12, record) == " 12. PMID 1 (n.d.) Title. | Journal"
+    unpublished = ArticleSummary("W1", "Title.", (), "", 2020, None, (), "https://x")
+    assert format_record(1, unpublished, "OpenAlex") == "  1. OpenAlex W1 (2020) Title."
 
 
 def _patch_mesh_client(monkeypatch: pytest.MonkeyPatch, seen: list[httpx.Request]) -> None:
@@ -212,18 +263,30 @@ def test_databases_explains_the_automatic_choice(capsys: pytest.CaptureFixture[s
         "  PubMed\n"
         "    - the question uses MeSH headings\n"
         "    - SPC is a health-science question format\n"
-        "  OpenAlex (biblio-search cannot search it yet)\n"
+        "  OpenAlex\n"
     )
     assert "\nPubMed equation: (Anxiety[mj:noexp] OR" in out
-    assert "Note:" not in out
+    assert "\nOpenAlex equation: (anxiety OR depress*) AND" in out
+    assert out.endswith(
+        "\nNote: OpenAlex does not index these headings, so they are searched as free text: "
+        "Anxiety (MeSH), Depression (MeSH), Caregivers (MeSH), Aged (MeSH)\n"
+    )
 
 
 def test_databases_for_an_education_question(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["databases", str(EDUCATION)]) == 0
     out = capsys.readouterr().out
     assert "  ERIC (biblio-search cannot search it yet)\n    - the discipline is education" in out
+    assert '\nOpenAlex equation: ("peer teaching" OR "peer tutor*"~0 OR' in out
+    assert "PubMed equation" not in out
+
+
+def test_databases_none_searchable(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["databases", str(EDUCATION), "--database", "eric"]) == 0
+    out = capsys.readouterr().out
     assert out.endswith(
-        "\nNone of them can be searched yet; add --database pubmed to use PubMed.\n"
+        "\nNone of them can be searched yet; add --database pubmed or --database openalex "
+        "to search one that can be.\n"
     )
     assert "equation" not in out
 
@@ -247,10 +310,10 @@ def test_search_needs_a_searchable_database(
 ) -> None:
     seen: list[httpx.Request] = []
     _patch_client(monkeypatch, seen)
-    assert main(["search", str(EDUCATION)]) == 2
+    assert main(["search", str(EDUCATION), "--database", "eric", "--database", "arxiv"]) == 2
     err = capsys.readouterr().err
-    assert "none of the chosen databases can be searched yet (ERIC, OpenAlex)" in err
-    assert "--database pubmed" in err
+    assert "none of the chosen databases can be searched yet (ERIC, arXiv)" in err
+    assert "--database pubmed or --database openalex" in err
     assert seen == []
 
 
@@ -261,7 +324,7 @@ def test_search_in_pubmed_by_hand(
     _patch_client(monkeypatch, seen)
     assert main(["search", str(EDUCATION), "--database", "pubmed", "--max", "1"]) == 0
     out = capsys.readouterr().out
-    assert out.startswith("Searching in: PubMed\nEquation: (peer teaching[tiab] OR")
+    assert out.startswith("Searching in: PubMed\n\nPubMed\nEquation: (peer teaching[tiab] OR")
     assert seen[0].url.params["term"].startswith("(peer teaching[tiab]")
 
 

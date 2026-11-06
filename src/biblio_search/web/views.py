@@ -8,7 +8,13 @@ from __future__ import annotations
 
 from collections.abc import Collection
 
-from biblio_search.catalog import DATABASE_LABELS, DIALECTS, VOCABULARY_LABELS, foreign_note
+from biblio_search.catalog import (
+    DATABASE_LABELS,
+    DIALECTS,
+    RECORD_ID_LABELS,
+    VOCABULARY_LABELS,
+    dialect_notes,
+)
 from biblio_search.check import QuestionCheck, scope_note
 from biblio_search.models import (
     ArticleSummary,
@@ -90,7 +96,7 @@ def equation_view(
         "database": database.value,
         "label": DATABASE_LABELS[database],
         "equation": dialect.render(question, options),
-        "note": foreign_note(question, dialect),
+        "notes": list(dialect_notes(question, dialect)),
     }
 
 
@@ -113,9 +119,10 @@ def preview_view(
     }
 
 
-def count_view(database: str, result: SearchResult) -> JsonDict:
+def count_view(database: Database, result: SearchResult) -> JsonDict:
     return {
-        "database": database,
+        "database": database.value,
+        "label": DATABASE_LABELS[database],
         "count": result.count,
         "translation": result.query_translation,
         "not_found": list(result.not_found),
@@ -123,9 +130,10 @@ def count_view(database: str, result: SearchResult) -> JsonDict:
     }
 
 
-def record_view(record: ArticleSummary) -> JsonDict:
+def record_view(database: Database, record: ArticleSummary) -> JsonDict:
     return {
         "id": record.record_id,
+        "id_label": RECORD_ID_LABELS[database],
         "title": record.title,
         "authors": list(record.authors),
         "journal": record.journal,

@@ -545,7 +545,7 @@ function renderEquations(equations) {
     const pre = el("pre", "equation-pre");
     pre.append(highlight(item.equation));
     block.append(head, pre);
-    if (item.note) block.append(el("p", "note", item.note));
+    for (const note of item.notes) block.append(el("p", "note", note));
     return block;
   }));
 }
@@ -638,9 +638,20 @@ function progressStep(text, status) {
   return item;
 }
 
-function renderRecords(records, offset) {
-  const list = $("records");
-  list.start = offset + 1;
+// Cada base tiene su bloque: recuento, cómo entendió la ecuación y sus registros.
+function resultSection(sections, database, label) {
+  if (!sections[database]) {
+    const section = el("section", "db-result");
+    section.append(el("h3", "db-result-title", label));
+    const list = el("ol", "records");
+    section.append(list);
+    $("results").append(section);
+    sections[database] = { section, list };
+  }
+  return sections[database];
+}
+
+function renderRecords(list, records) {
   list.replaceChildren(...records.map((record) => {
     const item = el("li", "record");
     const title = el("a", "record-title", record.title || "(no title)");
@@ -652,8 +663,9 @@ function renderRecords(records, offset) {
       : record.authors.join(", ");
     const meta = el("div", "record-meta");
     meta.append(el("span", null, authors || "No authors listed"));
-    meta.append(el("span", null, `${record.journal}${record.year ? `, ${record.year}` : ""}`));
-    meta.append(el("span", "hint", `PMID ${record.id}`));
+    const where = [record.journal, record.year].filter(Boolean).join(", ");
+    if (where) meta.append(el("span", null, where));
+    meta.append(el("span", "hint", `${record.id_label} ${record.id}`));
     if (record.doi) {
       const doi = el("a", "hint", `doi:${record.doi}`);
       doi.href = `https://doi.org/${encodeURI(record.doi)}`;
@@ -671,13 +683,13 @@ function renderRecords(records, offset) {
   }));
 }
 
-function renderCount(count) {
+function renderCount(target, count) {
   const box = el("div", "count-box");
   const number = el("div", "count-number", count.count.toLocaleString("en"));
   box.append(number, el("div", "hint", "records found"));
   const details = el("div", "count-details");
   if (count.translation) {
-    details.append(el("p", "field-label", "How PubMed understood the equation"));
+    details.append(el("p", "field-label", `How ${count.label} understood the equation`));
     const pre = el("pre", "equation-pre small");
     pre.append(highlight(count.translation));
     details.append(pre);
@@ -686,10 +698,10 @@ function renderCount(count) {
   for (const warning of count.warnings) details.append(el("p", "banner warn", warning));
   const row = el("div", "count-row");
   row.append(box, details);
-  $("counts").append(row);
+  target.section.insertBefore(row, target.list);
 }
 
-function handleEvent(name, data, steps) {
+function handleEvent(name, data, steps, sections) {
   const label = (db) => (DATABASES.find(([v]) => v === db) || [db, db])[1];
   if (name === "selection") {
     const names = data.choices.filter((c) => c.searchable).map((c) => c.label).join(", ");
@@ -702,12 +714,12 @@ function handleEvent(name, data, steps) {
     steps[data.database].className = "step done";
     steps[data.database].textContent = `${label(data.database)}: ${data.count.toLocaleString("en")} records`;
     steps[`${data.database}-records`] = progressStep(`${label(data.database)}: fetching the first records…`, "running");
-    renderCount(data);
+    renderCount(resultSection(sections, data.database, data.label), data);
   } else if (name === "records") {
     const step = steps[`${data.database}-records`];
     step.className = "step done";
     step.textContent = `${label(data.database)}: ${data.records.length} records listed`;
-    renderRecords(data.records, 0);
+    renderRecords(resultSection(sections, data.database, label(data.database)).list, data.records);
   } else if (name === "error") {
     for (const step of Object.values(steps)) if (step.classList.contains("running")) step.className = "step failed";
     progressStep(data.message, "failed");
@@ -730,9 +742,9 @@ async function runSearch() {
   const button = $("search-button");
   button.disabled = true;
   $("progress").replaceChildren();
-  $("counts").replaceChildren();
-  $("records").replaceChildren();
+  $("results").replaceChildren();
   const steps = {};
+  const sections = {};
   try {
     const response = await fetch("/api/search", {
       method: "POST",
@@ -754,7 +766,7 @@ async function runSearch() {
       while ((end = buffer.indexOf("\n\n")) !== -1) {
         const event = parseEvent(buffer.slice(0, end));
         buffer = buffer.slice(end + 2);
-        if (event) handleEvent(event.name, event.data, steps);
+        if (event) handleEvent(event.name, event.data, steps, sections);
       }
     }
   } catch (error) {

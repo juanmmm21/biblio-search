@@ -8,7 +8,7 @@ send requests to it, so it also refuses foreign ``Host`` headers (DNS rebinding)
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
-from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Any, Protocol
 from urllib.parse import urlsplit
@@ -20,11 +20,11 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from biblio_search.catalog import DATABASE_LABELS, DIALECTS, SEARCHABLE
+from biblio_search.catalog import DATABASE_LABELS, DIALECTS
 from biblio_search.check import apply_check, check_question
-from biblio_search.eutils import MAX_RETMAX, EutilsError
+from biblio_search.eutils import MAX_RETMAX
 from biblio_search.mesh import JsonBackend, MeshThesaurus
-from biblio_search.models import QuestionError
+from biblio_search.models import Database, DatabaseError, QuestionError
 from biblio_search.pipeline import (
     CountReceived,
     EquationBuilt,
@@ -58,6 +58,7 @@ class NcbiClient(SearchBackend, JsonBackend, Protocol):
 # El cuerpo es la pregunta tal cual: parse_question la valida con mensajes que nombran el campo.
 QuestionBody = Annotated[dict[str, Any], Body()]
 ClientFactory = Callable[[], AbstractAsyncContextManager[NcbiClient]]
+BackendFactory = Callable[[], AbstractAsyncContextManager[SearchBackend]]
 
 
 class SearchRequest(BaseModel):
@@ -79,17 +80,27 @@ def _same_origin(request: Request) -> bool:
 def create_app(
     open_client: ClientFactory,
     initial_question: Mapping[str, object] | None = None,
+    open_backends: Mapping[Database, BackendFactory] | None = None,
 ) -> FastAPI:
     """Build the application.
 
-    ``open_client`` opens the NCBI client once for the whole life of the server, so every
-    request shares its rate limiter. ``initial_question`` is shown when the page opens.
+    ``open_client`` opens the NCBI client (PubMed and MeSH) and ``open_backends`` the client
+    of every other searchable database. Each one is opened once for the whole life of the
+    server, so every request shares its rate limiter. ``initial_question`` is shown when the
+    page opens.
     """
+    others = dict(open_backends or {})
+    searchable = frozenset({Database.PUBMED, *others})
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        async with open_client() as client:
-            app.state.client = client
+        async with AsyncExitStack() as stack:
+            ncbi = await stack.enter_async_context(open_client())
+            backends: dict[Database, SearchBackend] = {Database.PUBMED: ncbi}
+            for database, factory in others.items():
+                backends[database] = await stack.enter_async_context(factory())
+            app.state.client = ncbi
+            app.state.backends = backends
             yield
 
     app = FastAPI(title="biblio-search", lifespan=lifespan, docs_url=None, redoc_url=None)
@@ -110,12 +121,16 @@ def create_app(
     async def question_error(request: Request, exc: QuestionError) -> JSONResponse:
         return JSONResponse({"error": str(exc)}, 422)
 
-    @app.exception_handler(EutilsError)
-    async def ncbi_error(request: Request, exc: EutilsError) -> JSONResponse:
+    @app.exception_handler(DatabaseError)
+    async def database_error(request: Request, exc: DatabaseError) -> JSONResponse:
         return JSONResponse({"error": str(exc)}, 502)
 
     def client() -> NcbiClient:
         value: NcbiClient = app.state.client
+        return value
+
+    def backend(database: Database) -> SearchBackend:
+        value: SearchBackend = app.state.backends[database]
         return value
 
     @app.get("/", include_in_schema=False)
@@ -131,7 +146,7 @@ def create_app(
     @app.post("/api/preview")
     async def preview(data: QuestionBody) -> dict[str, object]:
         question, options = parse_question(data)
-        return preview_view(question, options, SEARCHABLE)
+        return preview_view(question, options, searchable)
 
     @app.post("/api/import")
     async def import_question(body: ImportRequest) -> dict[str, object]:
@@ -159,18 +174,23 @@ def create_app(
         # Ya se está mandando el flujo: los errores van como evento, no como código HTTP.
         try:
             question, options = parse_question(body.question)
-            selection = select_databases(question, SEARCHABLE)
+            selection = select_databases(question, searchable)
             yield ServerSentEvent(data=selection_view(selection), event="selection")
             for database in selection.pending:
                 skipped = {"database": database.value, "label": DATABASE_LABELS[database]}
                 yield ServerSentEvent(data=skipped, event="skipped")
             if not selection.searchable:
+                names = " or ".join(DATABASE_LABELS[d] for d in sorted(searchable))
                 raise QuestionError(
-                    "none of the chosen databases can be searched yet; choose PubMed to search"
+                    f"none of the chosen databases can be searched yet; choose {names} to search"
                 )
             for database in selection.searchable:
                 steps = search_progress(
-                    question, options, DIALECTS[database], client(), max_records=body.max_records
+                    question,
+                    options,
+                    DIALECTS[database],
+                    backend(database),
+                    max_records=body.max_records,
                 )
                 async for event in steps:
                     match event:
@@ -178,13 +198,13 @@ def create_app(
                             built = {"database": event.database, "equation": event.equation}
                             yield ServerSentEvent(data=built, event="equation")
                         case CountReceived():
-                            count = count_view(event.database, event.result)
+                            count = count_view(database, event.result)
                             yield ServerSentEvent(data=count, event="count")
                         case RecordsReceived():
-                            records = [record_view(r) for r in event.records]
+                            records = [record_view(database, r) for r in event.records]
                             listed = {"database": event.database, "records": records}
                             yield ServerSentEvent(data=listed, event="records")
-        except (QuestionError, EutilsError) as exc:
+        except (QuestionError, DatabaseError) as exc:
             yield ServerSentEvent(data={"message": str(exc)}, event="error")
             return
         yield ServerSentEvent(data={}, event="done")
