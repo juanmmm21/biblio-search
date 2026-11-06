@@ -2,9 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import httpx
 import pytest
+from conftest import load_fixture
 
-from biblio_search.__main__ import main
+import biblio_search.__main__ as cli
+from biblio_search.__main__ import format_record, main
+from biblio_search.eutils import EutilsClient, EutilsConfig
+from biblio_search.models import ArticleSummary
+from biblio_search.ratelimit import RateLimiter
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "caregiver-burden.toml"
 
@@ -28,3 +34,68 @@ def test_build_reports_errors_on_stderr(tmp_path: Path, capsys: pytest.CaptureFi
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "cannot read" in captured.err
+
+
+def _patch_client(monkeypatch: pytest.MonkeyPatch, seen: list[httpx.Request]) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        name = (
+            "esearch_caregiver.json" if "esearch" in request.url.path else "esummary_caregiver.json"
+        )
+        return httpx.Response(200, json=load_fixture(name))
+
+    async def no_wait(_: float) -> None:
+        return None
+
+    def factory(config: EutilsConfig) -> EutilsClient:
+        return EutilsClient(
+            config,
+            transport=httpx.MockTransport(handler),
+            limiter=RateLimiter(1000, sleep=no_wait),
+            sleep=no_wait,
+        )
+
+    monkeypatch.setattr(cli, "EutilsClient", factory)
+
+
+def test_search_prints_report(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seen: list[httpx.Request] = []
+    _patch_client(monkeypatch, seen)
+    monkeypatch.delenv("NCBI_API_KEY", raising=False)
+    monkeypatch.setenv("NCBI_EMAIL", "env@example.org")
+
+    assert main(["search", str(EXAMPLE), "--max", "3", "--email", "flag@example.org"]) == 0
+
+    out = capsys.readouterr().out
+    assert "Results: 2808" in out
+    assert "PubMed understood: (" in out
+    assert "  1. PMID 42970524 (2026) Music-Based Interventions" in out
+    assert "[Journal Article, Review]" in out
+    assert seen[0].url.params["email"] == "flag@example.org"
+    assert seen[0].url.params["retmax"] == "3"
+
+
+def test_search_reports_ncbi_errors(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def failing(config: EutilsConfig) -> EutilsClient:
+        return EutilsClient(
+            config, transport=httpx.MockTransport(lambda _: httpx.Response(400, text="bad"))
+        )
+
+    monkeypatch.setattr(cli, "EutilsClient", failing)
+    assert main(["search", str(EXAMPLE)]) == 1
+    assert "HTTP 400" in capsys.readouterr().err
+
+
+def test_search_rejects_out_of_range_max(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit):
+        main(["search", str(EXAMPLE), "--max", "20000"])
+    assert "between 0 and 10000" in capsys.readouterr().err
+
+
+def test_format_record_without_year_or_types() -> None:
+    record = ArticleSummary("1", "Title.", (), "Journal", None, None, ())
+    assert format_record(12, record) == " 12. PMID 1 (n.d.) Title. | Journal"
