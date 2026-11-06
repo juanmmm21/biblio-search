@@ -35,6 +35,7 @@ packages = ["src/biblio_search"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+pythonpath = ["src"]
 
 [tool.ruff]
 line-length = 100
