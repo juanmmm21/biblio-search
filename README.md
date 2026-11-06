@@ -1,8 +1,10 @@
 # biblio-search
 
-Turn a structured clinical question into a rigorous, reproducible PubMed search, and run it.
+Turn a research question from any discipline into a rigorous, reproducible search strategy,
+and run it in PubMed and OpenAlex.
 
-biblio-search models the bibliographic search method taught to health-science students:
+biblio-search models the bibliographic search method taught to health-science students, and
+extends it to any field:
 decompose the question, map every concept to controlled vocabulary and free text, tag each
 term with the right field, and assemble everything into a single boolean equation whose
 sensitivity and specificity you can tune on purpose instead of by trial and error.
@@ -11,7 +13,7 @@ Everything happens in a local web page: write the question, watch the equation, 
 grid and the chosen databases update as you type, check the headings against MeSH and run the
 search with live progress. The same features are available from the command line.
 
-![Writing a question: the PubMed equation, the MeSH check and Del Pino's logic grid update as you type](docs/screenshots/strategy.png)
+![Writing a question: the PubMed and OpenAlex equations and Del Pino's logic grid update as you type](docs/screenshots/strategy.png)
 
 ## What problem it solves
 
@@ -51,9 +53,10 @@ University of Jaén) in *"Cómo aprender (y enseñar) a realizar búsquedas en C
 7. **Tune sensitivity and specificity.** Repeat headings as free text to catch records not
    yet indexed, or limit free text to non-MEDLINE records with `NOT MEDLINE[sb]` for a more
    specific search.
-8. **Run it and read what the database understood.** biblio-search sends the equation to
-   PubMed through NCBI E-utilities and shows the record count, PubMed's own translation of
-   the query, any term it did not recognise and the first records to screen.
+8. **Run it and read what the database understood.** biblio-search sends each database its
+   own equation (PubMed through NCBI E-utilities, OpenAlex through its works API) and shows
+   the record count, the database's own reading of the query, any term it did not recognise
+   and the first records to screen.
 
 ## Engineering highlights
 
@@ -79,11 +82,24 @@ University of Jaén) in *"Cómo aprender (y enseñar) a realizar búsquedas en C
 - **Every heading knows its thesaurus.** Controlled terms carry their vocabulary (MeSH by
   default, ERIC). A database that does not index a vocabulary searches those headings as
   free text and says so, and each thesaurus only checks its own headings.
+- **OpenAlex searched as written.** OpenAlex stems its default search, which turns *carer*
+  into *care* and multiplies the results tenfold, and rejects wildcards there. biblio-search
+  uses its unstemmed title-and-abstract search instead, so terms mean what they mean in
+  PubMed's `[tiab]`, and writes truncated phrases (`family caregiv*`), which OpenAlex refuses
+  inside quotes, as zero-distance proximity (`"family caregiv*"~0`). OpenAlex indexes no
+  thesaurus, so headings become free text, and each database explains in a note anything it
+  had to search differently from how the question was written.
+- **Records are database-neutral.** A search returns ids and a second call fetches their
+  summaries, in the same order, for every database; each record keeps its own identifier
+  (PMID or OpenAlex work id) and link, so the CLI and the page list them side by side.
 - **A polite async client.** The E-utilities client is built on `httpx.AsyncClient`, spaces
   requests to NCBI's quota (3 per second, 10 with an API key), always identifies the tool,
   retries 429/5xx and network errors with backoff (honouring `Retry-After`, including NCBI's
-  rate-limit errors served with HTTP 200) and batches summary requests.
-- **Offline, deterministic tests.** Real NCBI responses are recorded as fixtures and an
+  rate-limit errors served with HTTP 200) and batches summary requests. The OpenAlex client
+  works the same way within OpenAlex's limits (1 request per second for long boolean queries
+  without a key, 5 with one), sends the optional key in a header rather than the URL, and
+  stops early with a clear message when the daily budget is spent instead of waiting hours.
+- **Offline, deterministic tests.** Real NCBI and OpenAlex responses are recorded as fixtures and an
   autouse guard makes any test that opens a socket fail.
 - **Dialects behind a protocol.** Query generation sits behind a small `QueryDialect`
   interface, so other databases can get their own syntax without touching the model.
@@ -96,7 +112,7 @@ University of Jaén) in *"Cómo aprender (y enseñar) a realizar búsquedas en C
   websites open in the same browser cannot drive it. All user text is rendered as text,
   never as HTML.
 - **Strict typing, few dependencies.** Frozen dataclasses and enums, `mypy --strict` on
-  sources and tests; beyond the standard library, `httpx` for NCBI and FastAPI with uvicorn
+  sources and tests; beyond the standard library, `httpx` for NCBI and OpenAlex, and FastAPI with uvicorn
   for the web interface. Question files are read with `tomllib` and written back by a small
   serializer of their own.
 
@@ -108,9 +124,11 @@ biblio-search/
 │   ├── models.py         # SPC/PICO/concepts question, conditions, terms, vocabularies
 │   ├── protocols.py      # QueryDialect and Thesaurus interfaces
 │   ├── pubmed_query.py   # PubMed field tags, quoting rules and equation assembly
+│   ├── openalex_query.py # OpenAlex equation: unstemmed title/abstract search, proximity
 │   ├── question_file.py  # TOML question files -> validated domain objects
 │   ├── ratelimit.py      # async requests-per-second limiter
 │   ├── eutils.py         # NCBI E-utilities client (esearch, esummary) and response parsing
+│   ├── openalex.py       # OpenAlex works client (search, summaries) and response parsing
 │   ├── mesh.py           # MeSH lookups through E-utilities (db=mesh)
 │   ├── check.py          # heading checks, synonym suggestions, unknown terms to free text
 │   ├── selection.py      # rule-based database choice with reasons, manual override
@@ -125,7 +143,7 @@ biblio-search/
 ├── examples/
 │   ├── caregiver-burden.toml       # worked example from Del Pino (2017)
 │   └── peer-tutoring-reading.toml  # education question with free concepts and ERIC terms
-└── tests/                # unit tests and recorded NCBI fixtures, no network access
+└── tests/                # unit tests and recorded NCBI/OpenAlex fixtures, no network access
 ```
 
 ## Installation
@@ -159,11 +177,12 @@ The page opens in your browser on a free port of `127.0.0.1` (`--port` to fix it
   the chosen databases with the reasons, and the question tree.
 - **Check the MeSH headings**: each one is confirmed, corrected or flagged, with suggested
   synonyms you can add with a click and a button that applies the corrections.
-- **Search** and follow each step live, then read PubMed's translation of the equation and
-  the first records, with links to PubMed and the DOI.
+- **Search** every chosen database and follow each step live. Each database gets its own
+  block: the record count, how it read its equation and the first records, with links to
+  PubMed or OpenAlex and to the DOI.
 - **Import and export** the question as a TOML file, the same format the CLI reads.
 
-![Live search: each step as it happens, the record count, how PubMed read the equation and the records to screen](docs/screenshots/search.png)
+![Live search in PubMed and OpenAlex: each step as it happens, the record counts, how each database read its equation and the records to screen](docs/screenshots/search.png)
 
 ### Question files and the command line
 
@@ -272,7 +291,7 @@ listed under `Not checked` and left exactly as written.
 ### Choosing the databases
 
 `databases` shows where a question will be searched, why, and the equation of every database
-biblio-search can already query:
+it can query:
 
 ```console
 $ biblio-search databases examples/caregiver-burden.toml
@@ -280,10 +299,13 @@ Databases (chosen automatically):
   PubMed
     - the question uses MeSH headings
     - SPC is a health-science question format
-  OpenAlex (biblio-search cannot search it yet)
+  OpenAlex
     - general multidisciplinary database, so nothing outside the specialised ones is missed
 
 PubMed equation: (Anxiety[mj:noexp] OR Depression[mj] OR anxiety[tiab] OR depress*[tiab]) AND (Caregivers[mj] OR caregiv*[tiab] OR carer*[tiab]) AND (Aged[mh] OR elder*[tiab] OR older people[tiab]) AND (burden*[tiab] OR overload*[tiab] OR strain*[tiab])
+
+OpenAlex equation: (anxiety OR depress*) AND (caregiv* OR carer*) AND (aged OR elder* OR "older people") AND (burden* OR overload* OR strain*)
+Note: OpenAlex does not index these headings, so they are searched as free text: Anxiety (MeSH), Depression (MeSH), Caregivers (MeSH), Aged (MeSH)
 ```
 
 The rules are deterministic, so the same question always gets the same databases:
@@ -310,17 +332,26 @@ biblio-search: PubMed does not index these headings, so they are searched as fre
 ```
 
 Descriptors already covered by a free term (`elementary school*` covers *Elementary School
-Students*) are not repeated.
+Students*) are not repeated. OpenAlex gets the same treatment, with phrases quoted and
+truncated phrases written as proximity:
 
-### Running the search in PubMed
+```console
+$ biblio-search build examples/peer-tutoring-reading.toml --dialect openalex
+("peer teaching" OR "peer tutor*"~0 OR "peer assisted learning" OR "cross age tutor*"~0) AND ("reading comprehension" OR "reading skill*"~0) AND ("primary school*"~0 OR "elementary school*"~0)
+biblio-search: OpenAlex does not index these headings, so they are searched as free text: Peer Teaching (ERIC), Reading Comprehension (ERIC), Elementary School Students (ERIC)
+```
 
-`search` builds the same equation, runs it through NCBI E-utilities and lists the first
-records (20 by default, up to 10,000). It searches PubMed when PubMed is among the chosen
-databases and names the chosen ones it cannot query yet:
+### Running the search
+
+`search` builds the equation of every chosen database it can query, runs them one after the
+other and lists the first records of each (20 by default, up to 10,000). Chosen databases it
+cannot query yet are named on the first line:
 
 ```console
 $ biblio-search search examples/caregiver-burden.toml --max 3
-Searching in: PubMed (also chosen, not searchable yet: OpenAlex)
+Searching in: PubMed, OpenAlex
+
+PubMed
 Equation: (Anxiety[mj:noexp] OR Depression[mj] OR anxiety[tiab] OR depress*[tiab]) AND (Caregivers[mj] OR caregiv*[tiab] OR carer*[tiab]) AND (Aged[mh] OR elder*[tiab] OR older people[tiab]) AND (burden*[tiab] OR overload*[tiab] OR strain*[tiab])
 PubMed understood: ("anxiety"[MeSH Major Topic:noexp] OR ("depressive disorder"[MeSH Major Topic] OR "depression"[MeSH Major Topic]) OR "anxiety"[Title/Abstract] OR "depress*"[Title/Abstract]) AND ("caregivers"[MeSH Major Topic] OR "caregiv*"[Title/Abstract] OR "carer*"[Title/Abstract]) AND ("aged"[MeSH Terms] OR "elder*"[Title/Abstract] OR "older people"[Title/Abstract]) AND ("burden*"[Title/Abstract] OR "overload*"[Title/Abstract] OR "strain*"[Title/Abstract])
 Results: 2808
@@ -328,11 +359,22 @@ Results: 2808
   1. PMID 42970524 (2026) Music-Based Interventions for People Living With Dementia. | Home healthcare now [Journal Article, Review]
   2. PMID 42956697 (2026) Family functioning and depressive symptoms among caregivers of disabled old people: A multiple mediation model. | Geriatric nursing (New York, N.Y.) [Journal Article]
   3. PMID 42919807 (2026) "The Effect of Forgiveness Psychoeducation on Death Anxiety, Caregiver Burden, and Forgiveness Tendencies in Caregivers of Patients at the End of Life: A Randomized Controlled Trial": Şahin 49(3) May/June 2026. | Cancer nursing [Journal Article, Randomized Controlled Trial]
+
+OpenAlex
+Equation: (anxiety OR depress*) AND (caregiv* OR carer*) AND (aged OR elder* OR "older people") AND (burden* OR overload* OR strain*)
+OpenAlex understood: get works with (("older people" OR "aged" OR elder*) AND ("anxiety" OR depress*) AND (burden* OR overload* OR strain*) AND (caregiv* OR carer*)) in the title or abstract
+Results: 2516
+
+  1. OpenAlex W2145256182 (2010) Associations between drug burden index and physical function in older people in residential aged care facilities | Age and Ageing [article]
+  2. OpenAlex W4391296183 (2024) Coping and anxiety symptoms in family carers of dependent older people: Mediation and moderation effects of subjective caregiver burden | Journal of Nursing Scholarship [article]
+  3. OpenAlex W1923367678 (2014) Suicide in Older People | Crisis [article]
 ```
 
-Counts change as PubMed grows. The translation line is worth reading: here PubMed expanded
-`Depression[mj]` to also cover *depressive disorder*. Unknown terms are listed as
-`Not found:` and anything PubMed ignored as `Warning:`.
+Counts change as the databases grow. The translation lines are worth reading: here PubMed
+expanded `Depression[mj]` to also cover *depressive disorder*, and OpenAlex confirms it
+searched title and abstract with truncation intact. Unknown terms are listed as
+`Not found:` and anything PubMed ignored as `Warning:`. Use `--database pubmed` or
+`--database openalex` to search only one of them.
 
 NCBI asks every tool to identify itself. biblio-search always sends `tool=biblio-search`;
 set a contact email and, optionally, a free
@@ -342,6 +384,15 @@ to 10 requests per second:
 ```bash
 export NCBI_EMAIL="you@example.org"   # or pass --email
 export NCBI_API_KEY="..."             # optional, read from the environment only
+```
+
+OpenAlex is free and needs no key, but every search draws from a daily budget: without a
+key it is a small one shared by everyone behind your IP address (enough for roughly a
+hundred searches a day). A free key from [openalex.org](https://openalex.org/settings/api)
+gives you your own, ten times larger:
+
+```bash
+export OPENALEX_API_KEY="..."         # optional, read from the environment only
 ```
 
 ### Question file reference
@@ -450,9 +501,13 @@ The test suite never touches the network: NCBI responses are recorded under
 - **`Not valid yet: ...` above the equation in the web interface**: the question is
   incomplete (for example a condition without terms or a component without a description).
   The message names the field; the last valid preview stays visible, dimmed.
-- **`none of the chosen databases can be searched yet`**: the question was routed to
-  databases biblio-search cannot query yet (an education question goes to ERIC and
-  OpenAlex). Add `--database pubmed` to search PubMed with the same equation.
+- **`none of the chosen databases can be searched yet`**: only databases biblio-search
+  cannot query yet were chosen (for example `--database eric`). Add `--database openalex` or
+  `--database pubmed` to search one that it can.
+- **`OpenAlex rejected the request (HTTP 400): ...`**: OpenAlex explains what it did not
+  accept; the usual cause is a truncated term with fewer than three letters before the `*`.
+- **`OpenAlex asks to wait ... the daily budget is probably spent`**: the keyless budget is
+  shared by your whole IP address. Wait until midnight UTC or set `OPENALEX_API_KEY`.
 - **`check` says a heading is `not found`**: MeSH matches headings and entry terms exactly,
   so plurals, abbreviations or Spanish terms are not found. Look the concept up in the
   [MeSH Browser](https://meshb.nlm.nih.gov/) or keep it as free text.
