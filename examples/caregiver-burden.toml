@@ -1,0 +1,38 @@
+# Del Pino (2017), figure 4: "What is the relationship between burden and anxiety, on the
+# one hand, and burden and depression, on the other, in family caregivers of older people?"
+question = "What is the relationship between burden and anxiety or depression in family caregivers of older people?"
+format = "spc"
+
+[[components]]
+role = "situation"
+description = "Anxiety and depression in caregivers"
+
+[[components.conditions]]
+label = "anxiety or depression"
+controlled = [
+    { term = "Anxiety", scope = "major_no_explode" },
+    { term = "Depression", scope = "major" },
+]
+free = ["anxiety", "depress*"]
+
+[[components]]
+role = "population"
+description = "Family caregivers of older people"
+
+[[components.conditions]]
+label = "caregivers"
+controlled = [{ term = "Caregivers", scope = "major" }]
+free = ["caregiv*", "carer*"]
+
+[[components.conditions]]
+label = "older people"
+controlled = ["Aged"]
+free = ["elder*", "older people"]
+
+[[components]]
+role = "question"
+description = "Relationship with caregiver burden"
+
+[[components.conditions]]
+label = "burden"
+free = ["burden*", "overload*", "strain*"]
