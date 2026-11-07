@@ -20,6 +20,7 @@ from biblio_search.tuning import (
     AdviceKind,
     ConditionCount,
     Direction,
+    Variant,
     VariantCount,
     advise,
     condition_alone,
@@ -162,12 +163,17 @@ def _conditions() -> tuple[ConditionCount, ...]:
 
 
 def _variants() -> tuple[VariantCount, ...]:
+    question, options = _example()
+
+    def counted(key: str, direction: Direction, count: int) -> VariantCount:
+        return VariantCount(Variant(key, key, direction, question, options), key, count)
+
     return (
-        VariantCount("repeat", "repeat", Direction.SENSITIVE, "r", 70),
-        VariantCount("any_topic", "any topic", Direction.SENSITIVE, "m", 95),
-        VariantCount("major", "major", Direction.SPECIFIC, "j", 20),
-        VariantCount("title_only", "title", Direction.SPECIFIC, "t", 35),
-        VariantCount("explode", "explode", Direction.SENSITIVE, "e", 40),
+        counted("repeat", Direction.SENSITIVE, 70),
+        counted("any topic", Direction.SENSITIVE, 95),
+        counted("major", Direction.SPECIFIC, 20),
+        counted("title", Direction.SPECIFIC, 35),
+        counted("explode", Direction.SENSITIVE, 40),
     )
 
 

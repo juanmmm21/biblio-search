@@ -64,13 +64,23 @@ class Variant:
 
 @dataclass(frozen=True, slots=True)
 class VariantCount:
-    """How many records a variant finds in one database."""
+    """How many records a variant finds in one database, with its equation there."""
 
-    key: str
-    description: str
-    direction: Direction
+    variant: Variant
     equation: str
     count: int
+
+    @property
+    def key(self) -> str:
+        return self.variant.key
+
+    @property
+    def description(self) -> str:
+        return self.variant.description
+
+    @property
+    def direction(self) -> Direction:
+        return self.variant.direction
 
 
 @dataclass(frozen=True, slots=True)
@@ -380,15 +390,7 @@ async def tune(
         if rendered in seen:
             continue
         seen.add(rendered)
-        counted.append(
-            VariantCount(
-                variant.key,
-                variant.description,
-                variant.direction,
-                rendered,
-                await count(rendered),
-            )
-        )
+        counted.append(VariantCount(variant, rendered, await count(rendered)))
     found = tuple(conditions)
     variant_counts = tuple(counted)
     return TuningReport(
