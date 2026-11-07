@@ -1,0 +1,376 @@
+{
+  "objects": [
+    {
+      "decsws_response": {
+        "attr": {
+          "service": "",
+          "tree_id": "A02.633"
+        },
+        "record_list": {
+          "record": {
+            "allowable_qualifier_list": [
+              {
+                "allowable_qualifier": "AB",
+                "attr": {
+                  "id": "22005"
+                }
+              },
+              {
+                "allowable_qualifier": "AH",
+                "attr": {
+                  "id": "22004"
+                }
+              },
+              {
+                "allowable_qualifier": "BS",
+                "attr": {
+                  "id": "22040"
+                }
+              },
+              {
+                "allowable_qualifier": "CH",
+                "attr": {
+                  "id": "29165"
+                }
+              },
+              {
+                "allowable_qualifier": "CY",
+                "attr": {
+                  "id": "22010"
+                }
+              },
+              {
+                "allowable_qualifier": "DE",
+                "attr": {
+                  "id": "22021"
+                }
+              },
+              {
+                "allowable_qualifier": "DG",
+                "attr": {
+                  "id": "56874"
+                }
+              },
+              {
+                "allowable_qualifier": "EM",
+                "attr": {
+                  "id": "22023"
+                }
+              },
+              {
+                "allowable_qualifier": "EN",
+                "attr": {
+                  "id": "22026"
+                }
+              },
+              {
+                "allowable_qualifier": "IM",
+                "attr": {
+                  "id": "22038"
+                }
+              },
+              {
+                "allowable_qualifier": "IN",
+                "attr": {
+                  "id": "22042"
+                }
+              },
+              {
+                "allowable_qualifier": "IR",
+                "attr": {
+                  "id": "22037"
+                }
+              },
+              {
+                "allowable_qualifier": "ME",
+                "attr": {
+                  "id": "22044"
+                }
+              },
+              {
+                "allowable_qualifier": "MI",
+                "attr": {
+                  "id": "22046"
+                }
+              },
+              {
+                "allowable_qualifier": "PA",
+                "attr": {
+                  "id": "22053"
+                }
+              },
+              {
+                "allowable_qualifier": "PH",
+                "attr": {
+                  "id": "22031"
+                }
+              },
+              {
+                "allowable_qualifier": "PP",
+                "attr": {
+                  "id": "22032"
+                }
+              },
+              {
+                "allowable_qualifier": "PS",
+                "attr": {
+                  "id": "22051"
+                }
+              },
+              {
+                "allowable_qualifier": "RE",
+                "attr": {
+                  "id": "22022"
+                }
+              },
+              {
+                "allowable_qualifier": "SU",
+                "attr": {
+                  "id": "22009"
+                }
+              },
+              {
+                "allowable_qualifier": "TR",
+                "attr": {
+                  "id": "22070"
+                }
+              },
+              {
+                "allowable_qualifier": "UL",
+                "attr": {
+                  "id": "22071"
+                }
+              },
+              {
+                "allowable_qualifier": "VI",
+                "attr": {
+                  "id": "32386"
+                }
+              }
+            ],
+            "attr": {
+              "db": "decs",
+              "lang": "es",
+              "mfn": "9324"
+            },
+            "consider_also_terms_at": "MIO-",
+            "definition": {
+              "occ": {
+                "attr": {
+                  "n": "Tejido contráctil que produce movimiento en los animales."
+                }
+              }
+            },
+            "descriptor_list": [
+              {
+                "attr": {
+                  "lang": "en"
+                },
+                "descriptor": "Muscles"
+              },
+              {
+                "attr": {
+                  "lang": "es"
+                },
+                "descriptor": "Músculos"
+              },
+              {
+                "attr": {
+                  "lang": "pt-br"
+                },
+                "descriptor": "Músculos"
+              },
+              {
+                "attr": {
+                  "lang": "fr"
+                },
+                "descriptor": "Muscles"
+              },
+              {
+                "attr": {
+                  "lang": "es-es"
+                },
+                "descriptor": "músculos"
+              }
+            ],
+            "entry_combination_list": [
+              {
+                "attr": {
+                  "lang": "es",
+                  "sh_abbr1": "GD"
+                },
+                "entry_combination": "Desarrollo de Músculos"
+              }
+            ],
+            "indexing_annotation": "GER o no especificado; MÚSCULO ESQUÉLETICO y MÚSCULO LISO y sus específicos están disponibles; /inerv: vea también UNIÓN NEUROMUSCULAR & DESNERVACIÓN MUSCULAR; /cirug: vea también COLGAJOS QUIRÚRGICOS; /embriol: coord con DESARROLLO DE MÚSCULOS si pertinente; inflamación = MIOSITIS",
+            "pharmacological_action_list": [],
+            "see_related_list": [
+              {
+                "attr": {
+                  "lang": "es"
+                },
+                "see_related": "Miografía"
+              },
+              {
+                "attr": {
+                  "lang": "es"
+                },
+                "see_related": "Sarcolema"
+              },
+              {
+                "attr": {
+                  "lang": "es"
+                },
+                "see_related": "Retículo Sarcoplasmático"
+              }
+            ],
+            "synonym_list": [
+              {
+                "synonym": "Tejido Muscular"
+              }
+            ],
+            "tree_id_list": [
+              {
+                "tree_id": "A02.633"
+              },
+              {
+                "tree_id": "A10.690"
+              }
+            ],
+            "unique_identifier_nlm": "D009132"
+          }
+        },
+        "tree": {
+          "ancestors": {
+            "attr": {
+              "lang": "es"
+            },
+            "term_list": [
+              {
+                "attr": {
+                  "tree_id": "A"
+                },
+                "term": "ANATOMÍA"
+              },
+              {
+                "attr": {
+                  "tree_id": "A02"
+                },
+                "term": "Sistema Musculoesquelético"
+              },
+              {
+                "attr": {
+                  "tree_id": "A"
+                },
+                "term": "ANATOMÍA"
+              },
+              {
+                "attr": {
+                  "tree_id": "A10"
+                },
+                "term": "Tejidos"
+              }
+            ]
+          },
+          "descendants": {
+            "attr": {
+              "lang": "es"
+            },
+            "term_list": [
+              {
+                "attr": {
+                  "tree_id": "A02.633.567"
+                },
+                "term": "Músculo Esquelético"
+              },
+              {
+                "attr": {
+                  "tree_id": "A02.633.570"
+                },
+                "term": "Músculo Liso"
+              },
+              {
+                "attr": {
+                  "tree_id": "A02.633.580"
+                },
+                "term": "Miocardio"
+              }
+            ]
+          },
+          "following_sibling": {
+            "attr": {
+              "lang": "es"
+            },
+            "term_list": [
+              {
+                "attr": {
+                  "leaf": "true",
+                  "tree_id": "A02.734"
+                },
+                "term": "Unión Miotendinosa"
+              },
+              {
+                "attr": {
+                  "tree_id": "A02.835"
+                },
+                "term": "Esqueleto"
+              },
+              {
+                "attr": {
+                  "tree_id": "A02.880"
+                },
+                "term": "Tendones"
+              }
+            ]
+          },
+          "preceding_sibling": {
+            "attr": {
+              "lang": "es"
+            },
+            "term_list": [
+              {
+                "attr": {
+                  "leaf": "true",
+                  "tree_id": "A02.083"
+                },
+                "term": "Aponeurosis"
+              },
+              {
+                "attr": {
+                  "tree_id": "A02.165"
+                },
+                "term": "Cartílago"
+              },
+              {
+                "attr": {
+                  "tree_id": "A02.340"
+                },
+                "term": "Fascia"
+              },
+              {
+                "attr": {
+                  "tree_id": "A02.513"
+                },
+                "term": "Ligamentos"
+              }
+            ]
+          },
+          "self": {
+            "attr": {
+              "lang": "es"
+            },
+            "term_list": [
+              {
+                "attr": {
+                  "tree_id": "A02.633"
+                },
+                "term": "Músculos"
+              }
+            ]
+          }
+        }
+      },
+      "query": "musculos"
+    }
+  ]
+}

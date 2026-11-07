@@ -11,7 +11,8 @@
       "68000368",
       "68000369",
       "81000451",
-      "68009729"
+      "68009729",
+      "68009132"
     ],
     "68001007": {
       "uid": "68001007",
@@ -392,6 +393,78 @@
       "ds_headingmappedtolist": [],
       "ds_recordtype": "descriptor",
       "ds_meshui": "D009729"
+    },
+    "68009132": {
+      "uid": "68009132",
+      "ds_yearintroduced": "/transplantation was MUSCLE TRANSPLANTATION 1963-1965",
+      "ds_scopenote": "Contractile tissue that produces movement in animals.",
+      "ds_registrynumber": "",
+      "ds_headingmappedto": "",
+      "ds_meshterms": [
+        "Muscles",
+        "Muscle",
+        "Muscle Tissue",
+        "Muscle Tissues",
+        "Tissue, Muscle",
+        "Tissues, Muscle"
+      ],
+      "ds_subheading": [
+        "abnormalities",
+        "anatomy and histology",
+        "blood supply",
+        "chemistry",
+        "cytology",
+        "diagnostic imaging",
+        "drug effects",
+        "embryology",
+        "enzymology",
+        "immunology",
+        "injuries",
+        "innervation",
+        "metabolism",
+        "microbiology",
+        "parasitology",
+        "pathology",
+        "physiology",
+        "physiopathology",
+        "radiation effects",
+        "surgery",
+        "transplantation",
+        "ultrastructure",
+        "virology"
+      ],
+      "ds_papx": [],
+      "ds_previousindexing": [],
+      "ds_seerelated": [
+        "68009213",
+        "68012508",
+        "68012519"
+      ],
+      "ds_palist": [],
+      "ds_idxlinks": [
+        {
+          "parent": 68009141,
+          "treenum": "A02.633",
+          "children": [
+            "68018482",
+            "68009130",
+            "68009206"
+          ]
+        },
+        {
+          "parent": 68014024,
+          "treenum": "A10.690",
+          "children": [
+            "68009130",
+            "68054792"
+          ]
+        }
+      ],
+      "ds_entrydate": "1/01/01 00:00",
+      "ds_revisiondate": "1/01/01 00:00",
+      "ds_headingmappedtolist": [],
+      "ds_recordtype": "descriptor",
+      "ds_meshui": "D009132"
     }
   }
 }

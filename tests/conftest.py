@@ -34,6 +34,7 @@ MESH_SEARCH_FIXTURES = {
     '"carers"[mesh terms]': "mesh_esearch_carers.json",
     '"aged, 80 and over"[mesh terms]': "mesh_esearch_aged_80.json",
     '"nursing"[mesh terms]': "mesh_esearch_nursing.json",
+    '"muscles"[mesh terms]': "mesh_esearch_muscles.json",
 }
 
 

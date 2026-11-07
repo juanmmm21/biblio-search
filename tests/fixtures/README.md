@@ -10,7 +10,10 @@ MeSH database (`db=mesh`), recorded the same day:
 - `mesh_esearch_<heading>.json`: `"<heading>"[MeSH Terms]` for Anxiety, Depression,
   Caregivers, Aged, Carers (an entry term of Caregivers), "Aged, 80 and over" (a heading with
   commas), Nursing (a descriptor and a qualifier) and Qwzxvplorkt (`not_found`).
-- `mesh_esummary.json`: summaries of every uid returned by those searches.
+- `mesh_esearch_muscles.json`: `"Muscles"[MeSH Terms]`, recorded on 2026-11-07 for the DeCS
+  tests.
+- `mesh_esummary.json`: summaries of every uid returned by those searches (re-recorded on
+  2026-11-07 with Muscles added; the other records came back unchanged).
 
 OpenAlex works API (`api.openalex.org/works`, no key), recorded on 2026-11-06:
 
@@ -20,3 +23,12 @@ OpenAlex works API (`api.openalex.org/works`, no key), recorded on 2026-11-06:
   with the fields biblio-search reads.
 - `openalex_error_wildcard.json`: the HTTP 400 answer to a wildcard inside a quoted phrase
   (`"family caregiv*"`).
+
+DeCS API (`search-by-words`, `lang=es`, `format=json`), generated on 2026-11-07 by BIREME's
+own server code (github.com/bireme/decs-api, commit of 2026-10-26: its endpoint tests run
+against real DeCS records with the search index faked), because the public API needs a
+licence key:
+
+- `decs_words_musculos.json`: `words=musculos`, one hit (Muscles, D009132).
+- `decs_words_with_qualifier.json`: the same plus a qualifier hit (/poisoning, Q000506).
+- `decs_words_empty.json`: a search with no hits.
