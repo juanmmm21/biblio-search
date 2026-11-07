@@ -52,7 +52,10 @@ University of Jaén) in *"Cómo aprender (y enseñar) a realizar búsquedas en C
    least sensitive; free text gets `[tiab]` or `[ti]`.
 7. **Tune sensitivity and specificity.** Repeat headings as free text to catch records not
    yet indexed, or limit free text to non-MEDLINE records with `NOT MEDLINE[sb]` for a more
-   specific search.
+   specific search. Del Pino gives two warnings: distrust fewer than 100 records on a topic
+   with enough scientific output (too specific), and if none of the first 50 records is
+   relevant, the search is probably too sensitive. biblio-search counts every condition and
+   every lever so you tune with numbers.
 8. **Run it and read what the database understood.** biblio-search sends each database its
    own equation (PubMed through NCBI E-utilities, OpenAlex through its works API) and shows
    the record count, the database's own reading of the query, any term it did not recognise
@@ -140,12 +143,13 @@ biblio-search/
 │   ├── selection.py      # rule-based database choice with reasons, manual override
 │   ├── catalog.py        # databases, vocabularies and labels shared by the CLI and the web
 │   ├── pipeline.py       # question -> equation -> search -> records, step by step
+│   ├── tuning.py         # condition and lever counts, Del Pino's sensitivity warnings
 │   ├── web/
-│   │   ├── app.py        # FastAPI app: preview, check, import/export, SSE search
+│   │   ├── app.py        # FastAPI app: preview, check, import/export, SSE search and tuning
 │   │   ├── views.py      # JSON views of questions, selections, counts and records
 │   │   ├── server.py     # binds 127.0.0.1 and opens the browser
 │   │   └── static/       # the page: HTML, CSS and JavaScript, no build step
-│   └── __main__.py       # command line interface (ui, build, check, decs, databases, search)
+│   └── __main__.py       # command line interface (ui, build, check, decs, databases, search, tune)
 ├── examples/
 │   ├── caregiver-burden.toml       # worked example from Del Pino (2017)
 │   └── peer-tutoring-reading.toml  # education question with free concepts and ERIC terms
@@ -183,12 +187,17 @@ The page opens in your browser on a free port of `127.0.0.1` (`--port` to fix it
   the chosen databases with the reasons, and the question tree.
 - **Check the MeSH headings**: each one is confirmed, corrected or flagged, with suggested
   synonyms you can add with a click and a button that applies the corrections.
+- **Tune** the strategy: the count of every condition on its own and without it, and of
+  every lever of the method moved one at a time, with Del Pino's warnings and an *Apply*
+  button that loads the variant you prefer into the form.
 - **Search** every chosen database and follow each step live. Each database gets its own
   block: the record count, how it read its equation and the first records, with links to
   PubMed or OpenAlex and to the DOI.
 - **Import and export** the question as a TOML file, the same format the CLI reads.
 
 ![Live search in PubMed and OpenAlex: each step as it happens, the record counts, how each database read its equation and the records to screen](docs/screenshots/search.png)
+
+![Tuning: the count of each condition on its own and without it, and of each sensitivity or specificity lever, in PubMed and OpenAlex](docs/screenshots/tuning.png)
 
 ### Question files and the command line
 
@@ -432,6 +441,50 @@ gives you your own, ten times larger:
 ```bash
 export OPENALEX_API_KEY="..."         # optional, read from the environment only
 ```
+
+### Tuning sensitivity and specificity
+
+There is no right number of records, but Del Pino gives two warnings: fewer than 100
+records on a topic with enough scientific output means the search is probably too specific,
+and if none of the first 50 records is relevant it is probably too sensitive. `tune` gives
+you the numbers to act on them, in every chosen database:
+
+```console
+$ biblio-search tune examples/caregiver-burden.toml --database pubmed
+Searching in: PubMed
+
+PubMed: 2,809 records
+  (Anxiety[mj:noexp] OR Depression[mj] OR anxiety[tiab] OR depress*[tiab]) AND (Caregivers[mj] OR caregiv*[tiab] OR carer*[tiab]) AND (Aged[mh] OR elder*[tiab] OR older people[tiab]) AND (burden*[tiab] OR overload*[tiab] OR strain*[tiab])
+
+Conditions (records on its own / total without it):
+  anxiety or depression: 885,024 on its own / 10,495 without it
+  caregivers: 168,687 on its own / 10,781 without it
+  older people: 4,084,407 on its own / 6,578 without it
+  burden: 1,541,125 on its own / 6,983 without it
+
+Levers, one at a time:
+  more sensitive also search every heading as free text: 3,096 (+287)
+  more sensitive headings as any topic ([mh]): 2,896 (+87)
+  more sensitive headings with their narrower ones (explode): 2,810 (+1)
+  more specific  free text only outside MEDLINE (NOT MEDLINE[sb]; not for systematic reviews): 701 (-2,108)
+  more specific  headings as major topics ([mj]): 550 (-2,259)
+  more specific  free text in the title only ([ti]): 283 (-2,526)
+
+Screen the first 50 records; if none is relevant, run again with --none-relevant.
+```
+
+- **Conditions**: what each one finds on its own, and the total if it were dropped. The
+  condition whose removal multiplies the total is the one that cuts the most.
+- **Levers**: each lever of the method moved alone, in the direction it can still go, so
+  you see what it is worth before touching the question. Levers a database does not have
+  (OpenAlex has no MeSH, no MEDLINE subset and always searches title and abstract) are left
+  out there.
+- **Advice**: with fewer than 100 records, the levers that widen the search most and the
+  condition that cuts the most; with `--none-relevant` (only you can judge relevance), the
+  levers that narrow it most and the least selective condition.
+
+Only counts are requested, and each distinct equation once. In OpenAlex every count draws
+from the daily budget, so a question with four conditions costs about ten searches there.
 
 ### Question file reference
 
