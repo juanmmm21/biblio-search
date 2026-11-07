@@ -75,6 +75,11 @@ University of Jaén) in *"Cómo aprender (y enseñar) a realizar búsquedas en C
   (*Caregivers*), discards subheadings that share the index, and rewrites MeSH entry terms
   into the natural, comma-free synonyms an author would actually write. The lookup sits
   behind a `Thesaurus` protocol so other vocabularies can plug in.
+- **Spanish headings, still confirmed in MeSH.** With a DeCS licence key, a heading written
+  in Spanish (*Músculos*, *Tejido Muscular*) is looked up in DeCS, which keeps the NLM
+  identifier of every descriptor it translates, and the English name it gives is confirmed
+  in MeSH like any other heading. Only an exact Spanish name or synonym is renamed; a text
+  that merely shares words with a descriptor is left alone.
 - **Database choice is explained, not magic.** The automatic choice is a handful of
   deterministic rules (MeSH headings or an SPC/PICO question lead to PubMed, an education
   question or ERIC descriptors to ERIC, exact sciences to arXiv, OpenAlex always), and every
@@ -130,6 +135,7 @@ biblio-search/
 │   ├── eutils.py         # NCBI E-utilities client (esearch, esummary) and response parsing
 │   ├── openalex.py       # OpenAlex works client (search, summaries) and response parsing
 │   ├── mesh.py           # MeSH lookups through E-utilities (db=mesh)
+│   ├── decs.py           # DeCS client and the Spanish-to-MeSH bridge (optional, licensed)
 │   ├── check.py          # heading checks, synonym suggestions, unknown terms to free text
 │   ├── selection.py      # rule-based database choice with reasons, manual override
 │   ├── catalog.py        # databases, vocabularies and labels shared by the CLI and the web
@@ -139,11 +145,11 @@ biblio-search/
 │   │   ├── views.py      # JSON views of questions, selections, counts and records
 │   │   ├── server.py     # binds 127.0.0.1 and opens the browser
 │   │   └── static/       # the page: HTML, CSS and JavaScript, no build step
-│   └── __main__.py       # command line interface (ui, build, check, databases, search)
+│   └── __main__.py       # command line interface (ui, build, check, decs, databases, search)
 ├── examples/
 │   ├── caregiver-burden.toml       # worked example from Del Pino (2017)
 │   └── peer-tutoring-reading.toml  # education question with free concepts and ERIC terms
-└── tests/                # unit tests and recorded NCBI/OpenAlex fixtures, no network access
+└── tests/                # unit tests and recorded NCBI, OpenAlex and DeCS fixtures, no network access
 ```
 
 ## Installation
@@ -287,6 +293,38 @@ copy the ones that fit your question.
 
 Only MeSH headings are sent to MeSH. Headings from other vocabularies (ERIC descriptors) are
 listed under `Not checked` and left exactly as written.
+
+### Spanish headings through DeCS
+
+[DeCS](https://decs.bvsalud.org/en/) (Descriptores en Ciencias de la Salud, BIREME/PAHO/WHO)
+is MeSH translated into Spanish and Portuguese. Its API is free, but every user needs their
+own licence key, requested through the
+[DeCS developers page](https://decs.bvsalud.org/en/for-developers/). biblio-search works
+without it; with it, set the key in the environment:
+
+```bash
+export DECS_API_KEY="..."             # optional, read from the environment only
+```
+
+From then on `check` (and the *Check MeSH headings* button of the web interface) looks up in
+DeCS every heading MeSH does not know, and renames the exact Spanish ones to their MeSH
+descriptor:
+
+```console
+  in Spanish  Músculos -> Muscles (D009132) [muscles]: found through DeCS
+```
+
+To explore a concept before writing the question, `decs` lists every MeSH descriptor DeCS
+finds for a Spanish term, exact matches first, each one confirmed in MeSH:
+
+```console
+$ biblio-search decs tejido muscular
+MeSH descriptors for 'tejido muscular' (through DeCS, confirmed in MeSH):
+  exact   Músculos -> Muscles (D009132)
+```
+
+DeCS is © BIREME/PAHO/WHO and is used here under its licence conditions; the descriptors
+shown are those of the DeCS edition its API serves.
 
 ### Choosing the databases
 
@@ -509,8 +547,11 @@ The test suite never touches the network: NCBI responses are recorded under
 - **`OpenAlex asks to wait ... the daily budget is probably spent`**: the keyless budget is
   shared by your whole IP address. Wait until midnight UTC or set `OPENALEX_API_KEY`.
 - **`check` says a heading is `not found`**: MeSH matches headings and entry terms exactly,
-  so plurals, abbreviations or Spanish terms are not found. Look the concept up in the
-  [MeSH Browser](https://meshb.nlm.nih.gov/) or keep it as free text.
+  so plurals, abbreviations or Spanish terms are not found. Set `DECS_API_KEY` to have Spanish
+  headings translated, look the concept up in the [MeSH Browser](https://meshb.nlm.nih.gov/)
+  or keep it as free text.
+- **`DeCS rejected the API key (HTTP 401)`**: the key in `DECS_API_KEY` is missing a
+  character or no longer valid; DeCS licences last three years.
 - **`NCBI ... failed after 4 attempts: HTTP 429`**: too many requests from your IP, often
   several tools sharing one connection. Wait a minute, or set `NCBI_API_KEY`.
 - **`Warning: (` or a translation shorter than the equation**: PubMed dropped part of the
