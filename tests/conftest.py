@@ -24,6 +24,8 @@ def _no_network(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(socket.socket, "connect", refuse)
     monkeypatch.setattr(socket, "create_connection", refuse)
+    # La clave de DeCS de quien ejecuta los tests no debe cambiar lo que comprueban.
+    monkeypatch.delenv("DECS_API_KEY", raising=False)
 
 
 MESH_SEARCH_FIXTURES = {

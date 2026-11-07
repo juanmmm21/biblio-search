@@ -21,6 +21,14 @@ from biblio_search.catalog import (
     heading_label,
 )
 from biblio_search.check import QuestionCheck, apply_check, check_question, scope_note
+from biblio_search.decs import (
+    LICENCE_URL,
+    DecsClient,
+    DecsConfig,
+    DecsMeshThesaurus,
+    DecsSuggestion,
+    suggest_mesh,
+)
 from biblio_search.eutils import MAX_RETMAX, EutilsClient, EutilsConfig
 from biblio_search.mesh import MeshThesaurus
 from biblio_search.models import (
@@ -110,6 +118,15 @@ def _build_parser() -> argparse.ArgumentParser:
     check.add_argument(
         "--email", help="contact email sent to NCBI (default: NCBI_EMAIL environment variable)"
     )
+    decs = commands.add_parser(
+        "decs",
+        help="find the MeSH descriptors for a Spanish health term through DeCS "
+        "(needs DECS_API_KEY)",
+    )
+    decs.add_argument("words", nargs="+", help="Spanish term, e.g. cuidadores familiares")
+    decs.add_argument(
+        "--email", help="contact email sent to NCBI (default: NCBI_EMAIL environment variable)"
+    )
     ui = commands.add_parser(
         "ui", help="open the web interface in the browser (local only, nobody else can reach it)"
     )
@@ -192,13 +209,20 @@ def format_term_check(check: TermCheck) -> str:
     heading = f"{check.entry.name} ({check.entry.identifier})"
     if check.status is TermStatus.ENTRY_TERM:
         line = f"  entry term  {check.term.text} -> {heading} {where}"
+    elif check.status is TermStatus.TRANSLATED:
+        line = f"  in Spanish  {check.term.text} -> {heading} {where}: found through DeCS"
     else:
         line = f"  ok          {heading} {where}"
     note = scope_note(check)
     return f"{line}\n              {note}" if note else line
 
 
-def format_check(result: QuestionCheck, equation: str) -> str:
+_DECS_HINT = (
+    f"Spanish terms are looked up in DeCS when DECS_API_KEY is set (free licence: {LICENCE_URL})."
+)
+
+
+def format_check(result: QuestionCheck, equation: str, *, decs: bool = False) -> str:
     checks = result.checks
     label = VOCABULARY_LABELS.get(result.vocabulary, result.vocabulary)
     lines = [f"{label} check of {len(checks)} controlled terms"]
@@ -215,15 +239,57 @@ def format_check(result: QuestionCheck, equation: str) -> str:
             f"  {item.condition.label}: {', '.join(item.suggested_synonyms)}" for item in suggested
         ]
     lines += ["", f"Equation after the check: {equation}"]
+    missing = any(c.status is TermStatus.NOT_FOUND for c in checks)
+    if missing and not decs and result.vocabulary == MeshThesaurus.name:
+        lines += ["", _DECS_HINT]
     return "\n".join(lines)
 
 
 async def _check(
-    question: StructuredQuestion, config: EutilsConfig
+    question: StructuredQuestion, config: EutilsConfig, decs_config: DecsConfig | None
 ) -> tuple[QuestionCheck, StructuredQuestion]:
     async with EutilsClient(config) as client:
-        result = await check_question(question, MeshThesaurus(client))
+        mesh = MeshThesaurus(client)
+        if decs_config is None:
+            result = await check_question(question, mesh)
+        else:
+            async with DecsClient(decs_config) as decs:
+                result = await check_question(question, DecsMeshThesaurus(mesh, decs))
     return result, apply_check(question, result)
+
+
+def format_suggestion(suggestion: DecsSuggestion) -> str:
+    descriptor = suggestion.descriptor
+    match = "exact" if suggestion.exact else "related"
+    spanish = descriptor.spanish[0] if descriptor.spanish else descriptor.english
+    if suggestion.entry is None:
+        return (
+            f"  {match:<8}{spanish} -> {descriptor.english} ({descriptor.mesh_id}): "
+            "not confirmed in MeSH, not used"
+        )
+    return f"  {match:<8}{spanish} -> {suggestion.entry.name} ({suggestion.entry.identifier})"
+
+
+def format_suggestions(text: str, suggestions: Sequence[DecsSuggestion]) -> str:
+    if not suggestions:
+        return f"DeCS has no MeSH descriptor for {text!r}"
+    lines = [f"MeSH descriptors for {text!r} (through DeCS, confirmed in MeSH):"]
+    lines += [format_suggestion(s) for s in suggestions]
+    return "\n".join(lines)
+
+
+def _decs_config() -> DecsConfig:
+    config = DecsConfig.from_env()
+    if config is None:
+        raise QuestionError(f"DeCS needs a licence key in DECS_API_KEY (free: {LICENCE_URL})")
+    return config
+
+
+async def _suggest(
+    text: str, config: EutilsConfig, decs_config: DecsConfig
+) -> tuple[DecsSuggestion, ...]:
+    async with EutilsClient(config) as client, DecsClient(decs_config) as decs:
+        return await suggest_mesh(text, decs, MeshThesaurus(client))
 
 
 def format_selection(
@@ -298,6 +364,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.command == "ui":
             return _ui(args)
+        if args.command == "decs":
+            text = " ".join(args.words)
+            suggestions = asyncio.run(_suggest(text, _config(args), _decs_config()))
+            print(format_suggestions(text, suggestions))
+            return 0
         question, file_options = load_question(args.question_file)
         options = _merge_options(file_options, args)
         if args.command == "build":
@@ -307,9 +378,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print(f"biblio-search: {note}", file=sys.stderr)
             return 0
         if args.command == "check":
-            result, fixed = asyncio.run(_check(question, _config(args)))
+            decs_config = DecsConfig.from_env()
+            result, fixed = asyncio.run(_check(question, _config(args), decs_config))
             equation = DIALECTS[Database.PUBMED].render(fixed, options)
-            print(format_check(result, equation))
+            print(format_check(result, equation, decs=decs_config is not None))
             return 0
         requested = [Database(name) for name in args.databases]
         selection = select_databases(question, SEARCHABLE, requested)

@@ -7,8 +7,9 @@ import pytest
 from conftest import load_fixture, mesh_fixture_for
 
 import biblio_search.__main__ as cli
-from biblio_search.__main__ import format_check, format_record, main
+from biblio_search.__main__ import format_check, format_record, format_suggestion, main
 from biblio_search.check import QuestionCheck
+from biblio_search.decs import DecsClient, DecsConfig, DecsDescriptor, DecsSuggestion
 from biblio_search.eutils import EutilsClient, EutilsConfig
 from biblio_search.models import ArticleSummary, Term, Vocabulary
 from biblio_search.openalex import OpenAlexClient, OpenAlexConfig
@@ -333,3 +334,100 @@ def test_format_check_lists_unchecked_headings() -> None:
     out = format_check(QuestionCheck("mesh", (), (eric,)), "(x[tiab])")
     assert "\nNot checked (biblio-search cannot check them against MeSH):\n" in out
     assert "  Peer Teaching (ERIC)\n" in out
+
+
+def _patch_decs_client(monkeypatch: pytest.MonkeyPatch, fixture: str) -> list[httpx.Request]:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json=load_fixture(fixture))
+
+    async def no_wait(_: float) -> None:
+        return None
+
+    def factory(config: DecsConfig) -> DecsClient:
+        return DecsClient(
+            config,
+            transport=httpx.MockTransport(handler),
+            limiter=RateLimiter(1000, sleep=no_wait),
+            sleep=no_wait,
+        )
+
+    monkeypatch.setattr(cli, "DecsClient", factory)
+    monkeypatch.setenv("DECS_API_KEY", "test-key")
+    return seen
+
+
+def _spanish_question(tmp_path: Path) -> Path:
+    question = tmp_path / "q.toml"
+    question.write_text(
+        'question = "q"\nformat = "concepts"\n'
+        '[[components]]\ndescription = "muscles"\n'
+        '[[components.conditions]]\nlabel = "muscles"\n'
+        'controlled = ["Músculos"]\nfree = ["muscle*"]\n',
+        encoding="utf-8",
+    )
+    return question
+
+
+def test_check_translates_spanish_headings_with_a_decs_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _patch_mesh_client(monkeypatch, [])
+    seen = _patch_decs_client(monkeypatch, "decs_words_musculos.json")
+
+    assert main(["check", str(_spanish_question(tmp_path))]) == 0
+
+    out = capsys.readouterr().out
+    assert "  in Spanish  Músculos -> Muscles (D009132) [muscles]: found through DeCS" in out
+    assert "Equation after the check: (Muscles[mh] OR muscle*[tiab])" in out
+    assert "DECS_API_KEY" not in out
+    assert [r.url.params["words"] for r in seen] == ["Músculos"]
+
+
+def test_check_without_a_decs_key_says_how_to_translate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _patch_mesh_client(monkeypatch, [])
+
+    assert main(["check", str(_spanish_question(tmp_path))]) == 0
+
+    out = capsys.readouterr().out
+    assert "  not found   Músculos [muscles]" in out
+    assert out.rstrip().endswith("(free licence: https://decs.bvsalud.org/en/for-developers/).")
+
+
+def test_decs_lists_confirmed_descriptors(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _patch_mesh_client(monkeypatch, [])
+    _patch_decs_client(monkeypatch, "decs_words_with_qualifier.json")
+
+    assert main(["decs", "tejido", "muscular"]) == 0
+
+    assert capsys.readouterr().out == (
+        "MeSH descriptors for 'tejido muscular' (through DeCS, confirmed in MeSH):\n"
+        "  exact   Músculos -> Muscles (D009132)\n"
+    )
+
+
+def test_decs_without_results_or_key(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["decs", "cuidadores"]) == 2
+    assert "DECS_API_KEY" in capsys.readouterr().err
+
+    _patch_mesh_client(monkeypatch, [])
+    _patch_decs_client(monkeypatch, "decs_words_empty.json")
+    assert main(["decs", "qwzx"]) == 0
+    assert capsys.readouterr().out == "DeCS has no MeSH descriptor for 'qwzx'\n"
+
+
+def test_format_suggestion_marks_unconfirmed_descriptors() -> None:
+    descriptor = DecsDescriptor("1", "D018482", "Muscle, Skeletal", ("Músculo Esquelético",))
+    line = format_suggestion(DecsSuggestion(descriptor, None, exact=False))
+    assert line == (
+        "  related Músculo Esquelético -> Muscle, Skeletal (D018482): "
+        "not confirmed in MeSH, not used"
+    )
