@@ -320,3 +320,13 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent-soft
 .record-title:hover { color: var(--accent); text-decoration: underline; }
 .record-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13.5px; color: var(--muted); margin-top: 2px; }
 .record-meta a { color: var(--accent); text-decoration: none; }
+
+.tune-list { list-style: none; padding: 0; margin: 0 0 12px; }
+.tune-item { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line); }
+.tune-item:first-child { border-top: 0; }
+.tune-label { font-weight: 500; }
+.tune-count { margin-left: auto; font-variant-numeric: tabular-nums; }
+.lever.sensitive .tag { background: var(--free-soft); color: var(--free); }
+.lever.specific .tag { background: var(--mesh-soft); color: var(--mesh); }
+.advice p { margin: 0 0 6px; font-weight: 600; }
+.advice ul { margin: 0; padding-left: 18px; }

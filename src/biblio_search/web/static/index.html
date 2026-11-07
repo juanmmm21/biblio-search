@@ -130,6 +130,21 @@
         <ol class="progress" id="progress"></ol>
         <div id="results"></div>
       </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2 class="panel-title">Tune sensitivity and specificity <span class="hint">what each condition and each lever does to the count</span></h2>
+          <div class="search-controls">
+            <label class="check inline-check">
+              <input type="checkbox" id="none-relevant">
+              None of the first 50 records is relevant
+            </label>
+            <button type="button" class="button" id="tune-button">Tune</button>
+          </div>
+        </div>
+        <ol class="progress" id="tune-progress"></ol>
+        <div id="tuning"><p class="empty">Counts every condition on its own and every lever of the method one at a time, so you can widen or narrow the search with real numbers.</p></div>
+      </div>
     </section>
   </main>
 

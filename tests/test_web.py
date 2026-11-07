@@ -480,3 +480,32 @@ def test_check_without_decs_says_how_to_get_it(client: TestClient) -> None:
     assert result["decs"] is False
     assert result["decs_hint"]["url"] == "https://decs.bvsalud.org/en/for-developers/"
     assert client.post("/api/check", json=example_data()).json()["decs_hint"] is None
+
+
+def test_tune_streams_one_report_per_database(client: TestClient) -> None:
+    response = client.post("/api/tune", json={"question": example_data(), "none_relevant": True})
+
+    assert response.status_code == 200
+    events = sse_events(response.text)
+    assert [name for name, _ in events] == ["tuning", "report", "tuning", "report", "done"]
+    pubmed = events[1][1]
+    assert (pubmed["database"], pubmed["label"], pubmed["total"]) == ("pubmed", "PubMed", 2808)
+    conditions = pubmed["conditions"]
+    assert isinstance(conditions, list) and len(conditions) == 4
+    variants = pubmed["variants"]
+    assert isinstance(variants, list)
+    repeat = next(v for v in variants if v["key"] == "repeat")
+    assert repeat["direction"] == "sensitive"
+    assert repeat["question"]["options"]["repeat_controlled_as_free"] is True
+    advice = pubmed["advice"]
+    assert isinstance(advice, list) and advice[0]["kind"] == "too_sensitive"
+    openalex_report = events[3][1]
+    assert openalex_report["database"] == "openalex" and openalex_report["variants"] == []
+
+
+def test_tune_reports_errors_as_events() -> None:
+    with make_client(FakeNcbi(search_error=EutilsError("NCBI is down"))) as test_client:
+        data = {**example_data(), "databases": ["pubmed"]}
+        response = test_client.post("/api/tune", json={"question": data})
+    events = sse_events(response.text)
+    assert events[-1] == ("error", {"message": "NCBI is down"})

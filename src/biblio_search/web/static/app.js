@@ -748,6 +748,33 @@ function parseEvent(block) {
   return data.length ? { name, data: JSON.parse(data.join("\n")) } : null;
 }
 
+// EventSource solo hace GET: los flujos van por POST y se leen a mano.
+async function streamEvents(url, body, onEvent) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    const detail = payload.error || (payload.detail && payload.detail[0] && payload.detail[0].msg);
+    throw new Error(detail || `the server answered ${response.status}`);
+  }
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += value.replace(/\r\n/g, "\n");
+    let end;
+    while ((end = buffer.indexOf("\n\n")) !== -1) {
+      const event = parseEvent(buffer.slice(0, end));
+      buffer = buffer.slice(end + 2);
+      if (event) onEvent(event.name, event.data);
+    }
+  }
+}
+
 async function runSearch() {
   const button = $("search-button");
   button.disabled = true;
@@ -756,31 +783,107 @@ async function runSearch() {
   const steps = {};
   const sections = {};
   try {
-    const response = await fetch("/api/search", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question: toData(state), max_records: Number($("max-records").value) }),
-    });
-    if (!response.ok) {
-      const payload = await response.json().catch(() => ({}));
-      const detail = payload.error || (payload.detail && payload.detail[0] && payload.detail[0].msg);
-      throw new Error(detail || `the server answered ${response.status}`);
-    }
-    const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
-    let buffer = "";
-    for (;;) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buffer += value.replace(/\r\n/g, "\n");
-      let end;
-      while ((end = buffer.indexOf("\n\n")) !== -1) {
-        const event = parseEvent(buffer.slice(0, end));
-        buffer = buffer.slice(end + 2);
-        if (event) handleEvent(event.name, event.data, steps, sections);
-      }
-    }
+    const body = { question: toData(state), max_records: Number($("max-records").value) };
+    await streamEvents("/api/search", body, (name, data) => handleEvent(name, data, steps, sections));
   } catch (error) {
     progressStep(error.message, "failed");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+// --- Ajuste de sensibilidad y especificidad ---
+
+const DIRECTION_LABELS = { sensitive: "more sensitive", specific: "more specific" };
+
+function formatCount(n) {
+  return n.toLocaleString("en");
+}
+
+function formatChange(count, total) {
+  const change = count - total;
+  return `${change > 0 ? "+" : ""}${formatCount(change)}`;
+}
+
+function renderTuning(report) {
+  const section = el("section", "db-result tuning");
+  section.append(el("h3", "db-result-title", `${report.label} · ${formatCount(report.total)} records`));
+
+  section.append(el("p", "field-label", "Conditions"));
+  const conditions = el("ul", "tune-list");
+  for (const c of report.conditions) {
+    const item = el("li", "tune-item");
+    item.append(el("span", "tune-label", c.label));
+    const counts = `${formatCount(c.alone)} on its own` + (c.without === null ? "" : ` · ${formatCount(c.without)} without it`);
+    item.append(el("span", "hint", counts));
+    conditions.append(item);
+  }
+  if (report.without_exclusions !== null) {
+    const item = el("li", "tune-item");
+    item.append(el("span", "tune-label", "Without the NOT conditions"), el("span", "hint", formatCount(report.without_exclusions)));
+    conditions.append(item);
+  }
+  section.append(conditions);
+
+  if (report.variants.length) {
+    section.append(el("p", "field-label", "Levers, one at a time"));
+    const levers = el("ul", "tune-list");
+    const ordered = [...report.variants].sort((a, b) => (a.direction === "sensitive" ? 0 : 1) - (b.direction === "sensitive" ? 0 : 1));
+    for (const v of ordered) {
+      const item = el("li", `tune-item lever ${v.direction}`);
+      item.append(el("span", "tag", DIRECTION_LABELS[v.direction]), el("span", "tune-label", v.description));
+      item.append(el("span", "tune-count", `${formatCount(v.count)} (${formatChange(v.count, report.total)})`));
+      const apply = el("button", "button small", "Apply");
+      apply.type = "button";
+      apply.title = "Load this version of the question into the form";
+      apply.addEventListener("click", () => loadQuestion(v.question));
+      item.append(apply);
+      levers.append(item);
+    }
+    section.append(levers);
+  }
+
+  for (const advice of report.advice) {
+    const box = el("div", "banner warn advice");
+    box.append(el("p", null, advice.message));
+    const list = el("ul");
+    list.append(...advice.suggestions.map((s) => el("li", null, s)));
+    box.append(list);
+    section.append(box);
+  }
+  if (!$("none-relevant").checked && report.total > 0) {
+    section.append(el("p", "note", "Screen the first 50 records: if none is relevant, tick the box above and tune again."));
+  }
+  $("tuning").append(section);
+}
+
+async function runTune() {
+  const button = $("tune-button");
+  button.disabled = true;
+  $("tune-progress").replaceChildren();
+  $("tuning").replaceChildren();
+  const steps = {};
+  const step = (text, status) => {
+    const item = el("li", `step ${status}`, text);
+    $("tune-progress").append(item);
+    return item;
+  };
+  try {
+    const body = { question: toData(state), none_relevant: $("none-relevant").checked };
+    await streamEvents("/api/tune", body, (name, data) => {
+      if (name === "tuning") {
+        steps[data.database] = step(`${data.label}: counting every condition and lever…`, "running");
+      } else if (name === "report") {
+        steps[data.database].className = "step done";
+        steps[data.database].textContent = `${data.label}: ${formatCount(data.total)} records`;
+        renderTuning(data);
+      } else if (name === "error") {
+        for (const item of Object.values(steps)) if (item.classList.contains("running")) item.className = "step failed";
+        step(data.message, "failed");
+      }
+    });
+  } catch (error) {
+    step(error.message, "failed");
   } finally {
     button.disabled = false;
   }
@@ -828,6 +931,7 @@ function loadQuestion(data) {
 async function init() {
   setupStaticForm();
   $("search-button").addEventListener("click", runSearch);
+  $("tune-button").addEventListener("click", runTune);
   $("check-button").addEventListener("click", runCheck);
   $("apply-check").addEventListener("click", () => {
     if (lastCheck) loadQuestion(lastCheck.fixed);

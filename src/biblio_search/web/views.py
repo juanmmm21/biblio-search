@@ -29,7 +29,9 @@ from biblio_search.models import (
     TermStatus,
     Vocabulary,
 )
+from biblio_search.question_file import question_to_data
 from biblio_search.selection import DatabaseSelection, select_databases
+from biblio_search.tuning import TuningReport
 
 JsonDict = dict[str, object]
 
@@ -180,5 +182,36 @@ def check_view(result: QuestionCheck, *, decs: bool = False) -> JsonDict:
             {"condition": item.condition.label, "synonyms": list(item.suggested_synonyms)}
             for item in result.conditions
             if item.suggested_synonyms
+        ],
+    }
+
+
+def tuning_view(database: Database, report: TuningReport) -> JsonDict:
+    """Counts, levers and advice of one database; each lever carries the question it makes,
+    so the page can load it into the form."""
+    return {
+        "database": database.value,
+        "label": DATABASE_LABELS[database],
+        "equation": report.equation,
+        "total": report.total,
+        "conditions": [
+            {"label": c.label, "equation": c.equation, "alone": c.alone, "without": c.without}
+            for c in report.conditions
+        ],
+        "without_exclusions": report.without_exclusions,
+        "variants": [
+            {
+                "key": v.key,
+                "description": v.description,
+                "direction": v.direction.value,
+                "equation": v.equation,
+                "count": v.count,
+                "question": question_to_data(v.variant.question, v.variant.options),
+            }
+            for v in report.variants
+        ],
+        "advice": [
+            {"kind": a.kind.value, "message": a.message, "suggestions": list(a.suggestions)}
+            for a in report.advice
         ],
     }

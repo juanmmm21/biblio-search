@@ -40,12 +40,14 @@ from biblio_search.question_file import (
     question_to_data,
 )
 from biblio_search.selection import select_databases
+from biblio_search.tuning import tune
 from biblio_search.web.views import (
     check_view,
     count_view,
     preview_view,
     record_view,
     selection_view,
+    tuning_view,
 )
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -66,6 +68,11 @@ DecsFactory = Callable[[], AbstractAsyncContextManager[DecsSearch]]
 class SearchRequest(BaseModel):
     question: dict[str, Any]
     max_records: int = Field(default=20, ge=0, le=MAX_RETMAX)
+
+
+class TuneRequest(BaseModel):
+    question: dict[str, Any]
+    none_relevant: bool = False
 
 
 class ImportRequest(BaseModel):
@@ -214,6 +221,30 @@ def create_app(
                             records = [record_view(database, r) for r in event.records]
                             listed = {"database": event.database, "records": records}
                             yield ServerSentEvent(data=listed, event="records")
+        except (QuestionError, DatabaseError) as exc:
+            yield ServerSentEvent(data={"message": str(exc)}, event="error")
+            return
+        yield ServerSentEvent(data={}, event="done")
+
+    @app.post("/api/tune", response_class=EventSourceResponse)
+    async def tune_search(body: TuneRequest) -> AsyncIterator[ServerSentEvent]:
+        # Cada base tarda lo suyo (decenas de recuentos): se manda su informe en cuanto acaba.
+        try:
+            question, options = parse_question(body.question)
+            selection = select_databases(question, searchable)
+            if not selection.searchable:
+                raise QuestionError("none of the chosen databases can be searched yet")
+            for database in selection.searchable:
+                started = {"database": database.value, "label": DATABASE_LABELS[database]}
+                yield ServerSentEvent(data=started, event="tuning")
+                report = await tune(
+                    question,
+                    options,
+                    DIALECTS[database],
+                    backend(database),
+                    none_relevant=body.none_relevant,
+                )
+                yield ServerSentEvent(data=tuning_view(database, report), event="report")
         except (QuestionError, DatabaseError) as exc:
             yield ServerSentEvent(data={"message": str(exc)}, event="error")
             return
