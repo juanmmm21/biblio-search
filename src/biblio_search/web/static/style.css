@@ -277,6 +277,7 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent-soft
 .check-item:first-child { border-top: 0; }
 .check-item.valid .tag { background: #e3f1e5; color: var(--ok); }
 .check-item.entry_term .tag { background: var(--free-soft); color: var(--free); }
+.check-item.translated .tag { background: var(--mesh-soft); color: var(--mesh); }
 .check-item.not_found .tag { background: var(--danger-soft); color: var(--danger); }
 .suggestions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 10px; }
 .chip-button {

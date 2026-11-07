@@ -16,6 +16,7 @@ from biblio_search.catalog import (
     dialect_notes,
 )
 from biblio_search.check import QuestionCheck, scope_note
+from biblio_search.decs import LICENCE_URL
 from biblio_search.models import (
     ArticleSummary,
     Condition,
@@ -25,6 +26,8 @@ from biblio_search.models import (
     StructuredQuestion,
     Term,
     TermKind,
+    TermStatus,
+    Vocabulary,
 )
 from biblio_search.selection import DatabaseSelection, select_databases
 
@@ -144,8 +147,21 @@ def record_view(database: Database, record: ArticleSummary) -> JsonDict:
     }
 
 
-def check_view(result: QuestionCheck) -> JsonDict:
+def check_view(result: QuestionCheck, *, decs: bool = False) -> JsonDict:
+    # Sin clave de DeCS, un término que no está en MeSH puede ser uno en castellano: se dice
+    # cómo traducirlo en vez de dejarlo solo como «no encontrado».
+    missing = any(check.status is TermStatus.NOT_FOUND for check in result.checks)
+    decs_hint = (
+        {
+            "text": "Spanish headings are looked up in DeCS when DECS_API_KEY is set.",
+            "url": LICENCE_URL,
+        }
+        if missing and not decs and result.vocabulary == Vocabulary.MESH
+        else None
+    )
     return {
+        "decs": decs,
+        "decs_hint": decs_hint,
         "vocabulary": result.vocabulary,
         "vocabulary_label": VOCABULARY_LABELS.get(result.vocabulary, result.vocabulary),
         "checks": [

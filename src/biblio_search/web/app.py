@@ -22,6 +22,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from biblio_search.catalog import DATABASE_LABELS, DIALECTS
 from biblio_search.check import apply_check, check_question
+from biblio_search.decs import DecsMeshThesaurus, DecsSearch
 from biblio_search.eutils import MAX_RETMAX
 from biblio_search.mesh import JsonBackend, MeshThesaurus
 from biblio_search.models import Database, DatabaseError, QuestionError
@@ -59,6 +60,7 @@ class NcbiClient(SearchBackend, JsonBackend, Protocol):
 QuestionBody = Annotated[dict[str, Any], Body()]
 ClientFactory = Callable[[], AbstractAsyncContextManager[NcbiClient]]
 BackendFactory = Callable[[], AbstractAsyncContextManager[SearchBackend]]
+DecsFactory = Callable[[], AbstractAsyncContextManager[DecsSearch]]
 
 
 class SearchRequest(BaseModel):
@@ -81,13 +83,15 @@ def create_app(
     open_client: ClientFactory,
     initial_question: Mapping[str, object] | None = None,
     open_backends: Mapping[Database, BackendFactory] | None = None,
+    open_decs: DecsFactory | None = None,
 ) -> FastAPI:
     """Build the application.
 
     ``open_client`` opens the NCBI client (PubMed and MeSH) and ``open_backends`` the client
     of every other searchable database. Each one is opened once for the whole life of the
-    server, so every request shares its rate limiter. ``initial_question`` is shown when the
-    page opens.
+    server, so every request shares its rate limiter. ``open_decs``, only when the user has a
+    DeCS key, lets the check understand Spanish headings. ``initial_question`` is shown when
+    the page opens.
     """
     others = dict(open_backends or {})
     searchable = frozenset({Database.PUBMED, *others})
@@ -99,6 +103,8 @@ def create_app(
             backends: dict[Database, SearchBackend] = {Database.PUBMED: ncbi}
             for database, factory in others.items():
                 backends[database] = await stack.enter_async_context(factory())
+            decs = await stack.enter_async_context(open_decs()) if open_decs else None
+            app.state.decs = decs
             app.state.client = ncbi
             app.state.backends = backends
             yield
@@ -165,9 +171,13 @@ def create_app(
     @app.post("/api/check")
     async def check(data: QuestionBody) -> dict[str, object]:
         question, options = parse_question(data)
-        result = await check_question(question, MeshThesaurus(client()))
+        mesh = MeshThesaurus(client())
+        decs: DecsSearch | None = app.state.decs
+        thesaurus = mesh if decs is None else DecsMeshThesaurus(mesh, decs)
+        result = await check_question(question, thesaurus)
         fixed = apply_check(question, result)
-        return {**check_view(result), "fixed": question_to_data(fixed, options)}
+        view = check_view(result, decs=decs is not None)
+        return {**view, "fixed": question_to_data(fixed, options)}
 
     @app.post("/api/search", response_class=EventSourceResponse)
     async def search(body: SearchRequest) -> AsyncIterator[ServerSentEvent]:

@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 import biblio_search.web as web
 from biblio_search import openalex
 from biblio_search.__main__ import main
+from biblio_search.decs import DecsDescriptor, DecsSearch, parse_descriptors
 from biblio_search.eutils import EutilsError, parse_search, parse_summaries
 from biblio_search.models import ArticleSummary, Database, SearchResult
 from biblio_search.openalex import OpenAlexError
@@ -77,6 +78,7 @@ def make_client(
     other: SearchBackend | None = None,
     *,
     with_openalex: bool = True,
+    decs: DecsSearch | None = None,
 ) -> TestClient:
     ncbi = fake or FakeNcbi()
     openalex_backend = other or FakeOpenAlex()
@@ -89,10 +91,16 @@ def make_client(
     async def open_openalex() -> AsyncIterator[SearchBackend]:
         yield openalex_backend
 
+    @asynccontextmanager
+    async def open_decs() -> AsyncIterator[DecsSearch]:
+        assert decs is not None
+        yield decs
+
     backends: dict[Database, BackendFactory] = (
         {Database.OPENALEX: open_openalex} if with_openalex else {}
     )
-    return TestClient(create_app(open_client, initial, backends), base_url=BASE_URL)
+    app = create_app(open_client, initial, backends, open_decs if decs is not None else None)
+    return TestClient(app, base_url=BASE_URL)
 
 
 @pytest.fixture
@@ -430,3 +438,45 @@ def test_cli_ui_rejects_ports_out_of_range(capsys: pytest.CaptureFixture[str]) -
     with pytest.raises(SystemExit):
         main(["ui", "--port", "70000"])
     assert "between 0 and 65535" in capsys.readouterr().err
+
+
+class FakeDecs:
+    """Recorded DeCS answer: «Músculos» and its synonym lead to Muscles."""
+
+    async def search_words(self, words: str) -> tuple[DecsDescriptor, ...]:
+        if words.casefold() in ("músculos", "tejido muscular"):
+            return parse_descriptors(load_fixture("decs_words_musculos.json"))
+        return ()
+
+
+def _spanish_question() -> dict[str, object]:
+    return {
+        "question": "q",
+        "format": "concepts",
+        "components": [
+            {
+                "description": "muscles",
+                "conditions": [
+                    {"label": "muscles", "controlled": ["Músculos", "Qwzx"], "free": ["muscle*"]}
+                ],
+            }
+        ],
+    }
+
+
+def test_check_translates_spanish_headings_with_decs() -> None:
+    with make_client(decs=FakeDecs()) as test_client:
+        result = test_client.post("/api/check", json=_spanish_question()).json()
+    statuses = {c["term"]: (c["status"], c["heading"]) for c in result["checks"]}
+    assert statuses == {"Músculos": ("translated", "Muscles"), "Qwzx": ("not_found", None)}
+    assert result["decs"] is True and result["decs_hint"] is None
+    fixed = result["fixed"]["components"][0]["conditions"][0]
+    assert fixed["controlled"] == ["Muscles"]
+    assert fixed["free"] == ["Qwzx", "muscle*"]
+
+
+def test_check_without_decs_says_how_to_get_it(client: TestClient) -> None:
+    result = client.post("/api/check", json=_spanish_question()).json()
+    assert result["decs"] is False
+    assert result["decs_hint"]["url"] == "https://decs.bvsalud.org/en/for-developers/"
+    assert client.post("/api/check", json=example_data()).json()["decs_hint"] is None

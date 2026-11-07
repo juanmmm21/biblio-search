@@ -559,7 +559,7 @@ function renderPreview(preview) {
 
 // --- Comprobación contra el tesauro ---
 
-const STATUS_LABELS = { valid: "ok", entry_term: "synonym", not_found: "not found" };
+const STATUS_LABELS = { valid: "ok", entry_term: "synonym", translated: "Spanish", not_found: "not found" };
 
 function renderCheck(result) {
   const box = $("check-result");
@@ -572,6 +572,7 @@ function renderCheck(result) {
     let text;
     if (check.status === "valid") text = `${check.heading} (${check.identifier})`;
     else if (check.status === "entry_term") text = `${check.term} → ${check.heading} (${check.identifier})`;
+    else if (check.status === "translated") text = `${check.term} → ${check.heading} (${check.identifier}), found through DeCS`;
     else text = `${check.term}: will be searched as free text`;
     item.append(el("span", null, ` ${text}`), el("span", "hint", ` · ${check.condition}`));
     if (check.note) item.append(el("p", "note", check.note));
@@ -581,6 +582,15 @@ function renderCheck(result) {
   if (result.unchecked.length) {
     const names = result.unchecked.map((t) => `${t.text} (${t.vocabulary_label})`).join(", ");
     nodes.push(el("p", "note", `Not checked, biblio-search cannot check them against ${result.vocabulary_label}: ${names}`));
+  }
+  if (result.decs_hint) {
+    const hint = el("p", "note", `${result.decs_hint.text} `);
+    const link = el("a", null, "Free DeCS licence");
+    link.href = result.decs_hint.url;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    hint.append(link);
+    nodes.push(hint);
   }
   for (const suggestion of result.suggestions) {
     const row = el("div", "suggestions");
