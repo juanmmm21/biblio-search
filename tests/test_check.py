@@ -183,3 +183,23 @@ def test_only_terms_of_the_thesaurus_vocabulary_are_checked() -> None:
     # El descriptor ERIC homónimo de uno MeSH no se toca: solo se corrige lo comprobado.
     assert fixed.conditions[0].terms == (eric, Term.controlled("Caregivers"), Term.free("anxi*"))
     assert fixed.exclusions == question.exclusions
+
+
+def test_spanish_term_found_through_decs_is_translated_and_renamed() -> None:
+    translated = ThesaurusEntry("mesh", "D017028", "Caregivers", translated_from="decs")
+    question = StructuredQuestion(
+        text="q",
+        format=QuestionFormat.CONCEPTS,
+        components=(
+            Component(
+                ComponentRole.CONCEPT,
+                "cuidadores",
+                (Condition("cuidadores", (Term.controlled("Cuidadores"), Term.free("carer*"))),),
+            ),
+        ),
+    )
+    result = _check(question, FakeThesaurus({"Cuidadores": translated}))
+    assert [c.status for c in result.checks] == [TermStatus.TRANSLATED]
+    assert not result.all_valid
+    fixed = apply_check(question, result)
+    assert fixed.conditions[0].terms == (Term.controlled("Caregivers"), Term.free("carer*"))

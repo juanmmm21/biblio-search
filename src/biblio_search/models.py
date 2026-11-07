@@ -339,7 +339,9 @@ class ThesaurusEntry:
     ``synonyms`` are the entry terms rewritten as free text: without the inverted forms
     («Anxiety, Social») that authors never write, as Del Pino advises. ``has_narrower``
     tells whether searching the heading also retrieves narrower ones (it *explodes*), so
-    the no-explode scopes only make a difference when it is true.
+    the no-explode scopes only make a difference when it is true. ``translated_from`` names
+    the thesaurus that led to the heading from a text in another language (``"decs"`` for a
+    Spanish term), and is empty when the text was found in the thesaurus itself.
     """
 
     vocabulary: str
@@ -348,6 +350,7 @@ class ThesaurusEntry:
     synonyms: tuple[str, ...] = ()
     has_narrower: bool = False
     scope_note: str = ""
+    translated_from: str = ""
 
 
 class TermStatus(StrEnum):
@@ -355,6 +358,7 @@ class TermStatus(StrEnum):
 
     VALID = "valid"
     ENTRY_TERM = "entry_term"
+    TRANSLATED = "translated"
     NOT_FOUND = "not_found"
 
 
@@ -363,8 +367,9 @@ class TermCheck:
     """Result of checking one controlled term of one condition.
 
     ``ENTRY_TERM`` means the text is a synonym of a heading (``entry.name``) rather than the
-    heading itself; ``NOT_FOUND`` means it is not in the thesaurus and must be searched as
-    free text.
+    heading itself; ``TRANSLATED`` means it is the same heading in another language (a DeCS
+    term in Spanish for a MeSH descriptor); ``NOT_FOUND`` means it is not in the thesaurus and
+    must be searched as free text.
     """
 
     condition: str

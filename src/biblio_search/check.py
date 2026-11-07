@@ -57,6 +57,8 @@ class QuestionCheck:
 def _status(term: Term, entry: ThesaurusEntry | None) -> TermStatus:
     if entry is None:
         return TermStatus.NOT_FOUND
+    if entry.translated_from:
+        return TermStatus.TRANSLATED
     if entry.name.casefold() == term.text.casefold():
         return TermStatus.VALID
     return TermStatus.ENTRY_TERM
