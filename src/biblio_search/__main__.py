@@ -45,6 +45,7 @@ from biblio_search.openalex import OpenAlexClient, OpenAlexConfig
 from biblio_search.pipeline import SearchBackend, SearchReport, run_search
 from biblio_search.question_file import load_question, question_to_data
 from biblio_search.selection import DatabaseSelection, SelectionMode, select_databases
+from biblio_search.tuning import SCREENING_WINDOW, Direction, TuningReport, tune
 
 
 def _max_records(value: str) -> int:
@@ -107,6 +108,20 @@ def _build_parser() -> argparse.ArgumentParser:
         "--max", type=_max_records, default=20, dest="max_records", help="records to list"
     )
     search.add_argument(
+        "--email", help="contact email sent to NCBI (default: NCBI_EMAIL environment variable)"
+    )
+
+    tune_parser = commands.add_parser(
+        "tune",
+        parents=[question, choose],
+        help="count each condition and each sensitivity/specificity lever, and get advice",
+    )
+    tune_parser.add_argument(
+        "--none-relevant",
+        action="store_true",
+        help=f"none of the first {SCREENING_WINDOW} records was relevant (asks how to narrow)",
+    )
+    tune_parser.add_argument(
         "--email", help="contact email sent to NCBI (default: NCBI_EMAIL environment variable)"
     )
 
@@ -359,6 +374,52 @@ async def _search(
     return reports
 
 
+_DIRECTION_LABELS = {Direction.SENSITIVE: "more sensitive", Direction.SPECIFIC: "more specific"}
+
+
+def format_tuning(database: Database, report: TuningReport, *, none_relevant: bool) -> str:
+    lines = [f"{DATABASE_LABELS[database]}: {report.total:,} records", f"  {report.equation}"]
+    lines += ["", "Conditions (records on its own / total without it):"]
+    for item in report.conditions:
+        without = "" if item.without is None else f" / {item.without:,} without it"
+        lines.append(f"  {item.label}: {item.alone:,} on its own{without}")
+    if report.without_exclusions is not None:
+        lines.append(f"  without the NOT conditions: {report.without_exclusions:,}")
+    if report.variants:
+        lines += ["", "Levers, one at a time:"]
+        ordered = sorted(report.variants, key=lambda v: v.direction is not Direction.SENSITIVE)
+        for variant in ordered:
+            change = f"{variant.count - report.total:+,d}"
+            label = _DIRECTION_LABELS[variant.direction]
+            lines.append(f"  {label:<15}{variant.description}: {variant.count:,} ({change})")
+    for advice in report.advice:
+        lines += ["", advice.message]
+        lines += [f"  - {suggestion}" for suggestion in advice.suggestions]
+    if not none_relevant and report.total > 0:
+        lines += [
+            "",
+            f"Screen the first {SCREENING_WINDOW} records; if none is relevant, run again "
+            "with --none-relevant.",
+        ]
+    return "\n".join(lines)
+
+
+async def _tune(
+    question: StructuredQuestion,
+    options: StrategyOptions,
+    databases: Sequence[Database],
+    args: argparse.Namespace,
+) -> list[tuple[Database, TuningReport]]:
+    reports: list[tuple[Database, TuningReport]] = []
+    for database in databases:
+        async with _open_backend(database, args) as backend:
+            report = await tune(
+                question, options, DIALECTS[database], backend, none_relevant=args.none_relevant
+            )
+        reports.append((database, report))
+    return reports
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     try:
@@ -389,6 +450,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(format_selection(selection, question, options))
             return 0
         searched_in = _searched_in(selection)
+        if args.command == "tune":
+            tunings = asyncio.run(_tune(question, options, selection.searchable, args))
+            blocks = [format_tuning(db, r, none_relevant=args.none_relevant) for db, r in tunings]
+            print("\n\n".join([searched_in, *blocks]))
+            return 0
         reports = asyncio.run(_search(question, options, selection.searchable, args))
         print("\n\n".join([searched_in] + [format_report(db, r) for db, r in reports]))
         return 0

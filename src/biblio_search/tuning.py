@@ -262,7 +262,7 @@ def without_condition(question: StructuredQuestion, index: int) -> StructuredQue
 
 
 def _gain(count: int, total: int) -> str:
-    return f"{count} records ({count - total:+d})"
+    return f"{count:,} records ({count - total:+,d})"
 
 
 def advise(
@@ -290,7 +290,7 @@ def advise(
         if not empty and tightest is not None:
             suggestions.append(
                 f"the conditions find records apart but not together; without «{tightest.label}» "
-                f"there are {tightest.without}"
+                f"there are {tightest.without:,}"
             )
         suggestions += [f"{v.description}: {_gain(v.count, total)}" for v in wider]
         advice.append(
@@ -300,7 +300,7 @@ def advise(
         suggestions = [f"{v.description}: {_gain(v.count, total)}" for v in wider]
         if tightest is not None:
             suggestions.append(
-                f"«{tightest.label}» cuts the most ({tightest.without} records without it): "
+                f"«{tightest.label}» cuts the most ({tightest.without:,} records without it): "
                 "add synonyms or truncation to it, or check that it is essential"
             )
         advice.append(
@@ -320,7 +320,7 @@ def advise(
         loosest = max(conditions, key=lambda c: c.alone, default=None)
         if loosest is not None and len(conditions) > 1:
             suggestions.append(
-                f"«{loosest.label}» is the least selective condition ({loosest.alone} records "
+                f"«{loosest.label}» is the least selective condition ({loosest.alone:,} records "
                 "on its own): narrow its terms"
             )
         suggestions.append("add a condition the relevant records must meet")

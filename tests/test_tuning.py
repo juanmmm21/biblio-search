@@ -190,7 +190,7 @@ def test_enough_records_need_no_advice_until_the_user_screens_them() -> None:
     assert advice[0].suggestions == (
         "major: 20 records (-130)",
         "title: 35 records (-115)",
-        "«anxiety» is the least selective condition (900000 records on its own): narrow its terms",
+        "«anxiety» is the least selective condition (900,000 records on its own): narrow its terms",
         "add a condition the relevant records must meet",
     )
 

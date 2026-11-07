@@ -1,18 +1,25 @@
 from __future__ import annotations
 
+import argparse
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import httpx
 import pytest
 from conftest import load_fixture, mesh_fixture_for
+from test_tuning import CountingBackend
 
 import biblio_search.__main__ as cli
 from biblio_search.__main__ import format_check, format_record, format_suggestion, main
 from biblio_search.check import QuestionCheck
 from biblio_search.decs import DecsClient, DecsConfig, DecsDescriptor, DecsSuggestion
 from biblio_search.eutils import EutilsClient, EutilsConfig
-from biblio_search.models import ArticleSummary, Term, Vocabulary
+from biblio_search.models import ArticleSummary, Database, Term, Vocabulary
 from biblio_search.openalex import OpenAlexClient, OpenAlexConfig
+from biblio_search.pipeline import SearchBackend
+from biblio_search.pubmed_query import PubMedDialect
+from biblio_search.question_file import load_question
 from biblio_search.ratelimit import RateLimiter
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
@@ -431,3 +438,47 @@ def test_format_suggestion_marks_unconfirmed_descriptors() -> None:
         "  related Músculo Esquelético -> Muscle, Skeletal (D018482): "
         "not confirmed in MeSH, not used"
     )
+
+
+def _patch_counts(monkeypatch: pytest.MonkeyPatch, counts: dict[str, int]) -> None:
+    @asynccontextmanager
+    async def open_backend(
+        database: Database, args: argparse.Namespace
+    ) -> AsyncIterator[SearchBackend]:
+        yield CountingBackend(counts)
+
+    monkeypatch.setattr(cli, "_open_backend", open_backend)
+
+
+def test_tune_prints_counts_levers_and_advice(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    question, options = load_question(EXAMPLE)
+    equation = PubMedDialect().render(question, options)
+    _patch_counts(monkeypatch, {equation: 40})
+
+    assert main(["tune", str(EXAMPLE), "--database", "pubmed"]) == 0
+
+    out = capsys.readouterr().out
+    assert out.startswith(f"Searching in: PubMed\n\nPubMed: 40 records\n  {equation}\n")
+    assert "\nConditions (records on its own / total without it):\n  anxiety or depression: " in out
+    levers = out.split("Levers, one at a time:\n")[1].split("\n\n")[0].splitlines()
+    assert len(levers) == 6
+    assert levers[0].startswith("  more sensitive also search every heading as free text: ")
+    assert levers[-1].startswith("  more specific  ")
+    assert "\nFewer than 100 records: if the topic has enough scientific output" in out
+    assert out.rstrip().endswith("run again with --none-relevant.")
+
+
+def test_tune_with_none_relevant_asks_how_to_narrow(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _patch_counts(monkeypatch, {})
+
+    assert main(["tune", str(EXAMPLE), "--database", "openalex", "--none-relevant"]) == 0
+
+    out = capsys.readouterr().out
+    assert "Levers" not in out
+    assert "None of the first 50 records is relevant" in out
+    assert "  - add a condition the relevant records must meet" in out
+    assert "--none-relevant." not in out
