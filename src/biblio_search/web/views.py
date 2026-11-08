@@ -30,6 +30,7 @@ from biblio_search.models import (
     Vocabulary,
 )
 from biblio_search.question_file import question_to_data
+from biblio_search.search_log import SearchLog
 from biblio_search.selection import DatabaseSelection, select_databases
 from biblio_search.tuning import TuningReport
 
@@ -214,4 +215,17 @@ def tuning_view(database: Database, report: TuningReport) -> JsonDict:
             {"kind": a.kind.value, "message": a.message, "suggestions": list(a.suggestions)}
             for a in report.advice
         ],
+    }
+
+
+def merged_view(search_id: str, log: SearchLog) -> JsonDict:
+    """How many records the search kept after merging, and where to download them."""
+    merged = log.merged
+    return {
+        "search_id": search_id,
+        "searched_at": log.searched_at.isoformat(timespec="seconds"),
+        "identified": merged.identified,
+        "duplicates": merged.duplicates,
+        "unique": len(merged.records),
+        "downloads": {kind: f"/api/searches/{search_id}/{kind}" for kind in ("log", "ris", "csv")},
     }

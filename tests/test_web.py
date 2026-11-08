@@ -18,7 +18,7 @@ from biblio_search.eutils import EutilsError, parse_search, parse_summaries
 from biblio_search.models import ArticleSummary, Database, SearchResult
 from biblio_search.openalex import OpenAlexError
 from biblio_search.pipeline import SearchBackend
-from biblio_search.web.app import BackendFactory, NcbiClient, create_app
+from biblio_search.web.app import KEPT_SEARCHES, BackendFactory, NcbiClient, create_app
 from biblio_search.web.server import bind_local
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
@@ -178,7 +178,8 @@ def test_without_an_openalex_client_it_is_not_searchable() -> None:
         ("openalex", False),
     ]
     assert ("skipped", {"database": "openalex", "label": "OpenAlex"}) in events
-    assert events[-1] == ("done", {})
+    assert events[-1][0] == "done"
+    assert events[-1][1]["identified"] == 3
 
 
 def test_preview_notes_headings_searched_as_free_text(client: TestClient) -> None:
@@ -352,6 +353,44 @@ def test_search_streams_each_step() -> None:
     assert works[0]["id_label"] == "OpenAlex"
     assert works[0]["url"] == "https://openalex.org/W2145256182"
     assert works[0]["doi"] == "10.1093/ageing/afq053"
+
+
+def test_finished_search_can_be_downloaded() -> None:
+    with make_client() as test_client:
+        response = test_client.post(
+            "/api/search", json={"question": example_data(), "max_records": 3}
+        )
+        name, done = sse_events(response.text)[-1]
+        assert name == "done"
+        assert (done["identified"], done["duplicates"], done["unique"]) == (6, 0, 6)
+        downloads = done["downloads"]
+        assert isinstance(downloads, dict)
+        log = test_client.get(downloads["log"])
+        ris = test_client.get(downloads["ris"])
+        csv = test_client.get(downloads["csv"])
+        missing = test_client.get("/api/searches/nope/log")
+        unknown = test_client.get(f"/api/searches/{done['search_id']}/pdf")
+
+    assert log.status_code == 200 and log.headers["content-type"].startswith("text/markdown")
+    assert log.text.startswith("# Search log")
+    assert 'filename="biblio-search-' in log.headers["content-disposition"]
+    assert log.headers["content-disposition"].endswith('.md"')
+    assert ris.text.count("ER  - ") == 6
+    assert csv.text.startswith("\ufefftitle,")
+    assert missing.status_code == 404 and "run it again" in missing.json()["detail"]
+    assert unknown.status_code == 422
+
+
+def test_only_the_latest_searches_are_kept() -> None:
+    with make_client() as test_client:
+        ids = []
+        for _ in range(KEPT_SEARCHES + 1):
+            body = {"question": example_data(), "max_records": 3}
+            response = test_client.post("/api/search", json=body)
+            ids.append(sse_events(response.text)[-1][1]["search_id"])
+        first = test_client.get(f"/api/searches/{ids[0]}/csv")
+        last = test_client.get(f"/api/searches/{ids[-1]}/csv")
+    assert (first.status_code, last.status_code) == (404, 200)
 
 
 def test_openalex_errors_arrive_after_the_pubmed_results() -> None:

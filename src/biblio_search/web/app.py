@@ -7,13 +7,15 @@ send requests to it, so it also refuses foreign ``Host`` headers (DNS rebinding)
 
 from __future__ import annotations
 
+import secrets
+from collections import OrderedDict
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 from pathlib import Path
-from typing import Annotated, Any, Protocol
+from typing import Annotated, Any, Literal, Protocol
 from urllib.parse import urlsplit
 
-from fastapi import Body, FastAPI, Request, Response
+from fastapi import Body, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 from fastapi.staticfiles import StaticFiles
@@ -24,13 +26,21 @@ from biblio_search.catalog import DATABASE_LABELS, DIALECTS
 from biblio_search.check import apply_check, check_question
 from biblio_search.decs import DecsMeshThesaurus, DecsSearch
 from biblio_search.eutils import MAX_RETMAX
+from biblio_search.export import to_csv, to_ris
 from biblio_search.mesh import JsonBackend, MeshThesaurus
-from biblio_search.models import Database, DatabaseError, QuestionError
+from biblio_search.models import (
+    ArticleSummary,
+    Database,
+    DatabaseError,
+    QuestionError,
+    SearchResult,
+)
 from biblio_search.pipeline import (
     CountReceived,
     EquationBuilt,
     RecordsReceived,
     SearchBackend,
+    SearchReport,
     search_progress,
 )
 from biblio_search.question_file import (
@@ -39,11 +49,13 @@ from biblio_search.question_file import (
     parse_question_text,
     question_to_data,
 )
+from biblio_search.search_log import SearchLog, build_log, render_log
 from biblio_search.selection import select_databases
 from biblio_search.tuning import tune
 from biblio_search.web.views import (
     check_view,
     count_view,
+    merged_view,
     preview_view,
     record_view,
     selection_view,
@@ -52,6 +64,14 @@ from biblio_search.web.views import (
 
 STATIC_DIR = Path(__file__).parent / "static"
 LOCAL_HOSTS = ("127.0.0.1", "localhost")
+# Registros de búsqueda que se pueden descargar: los últimos, para no crecer sin límite.
+KEPT_SEARCHES = 20
+DownloadKind = Literal["log", "ris", "csv"]
+_DOWNLOADS: dict[str, tuple[str, str]] = {
+    "log": ("md", "text/markdown; charset=utf-8"),
+    "ris": ("ris", "application/x-research-info-systems; charset=utf-8"),
+    "csv": ("csv", "text/csv; charset=utf-8"),
+}
 
 
 class NcbiClient(SearchBackend, JsonBackend, Protocol):
@@ -114,6 +134,7 @@ def create_app(
             app.state.decs = decs
             app.state.client = ncbi
             app.state.backends = backends
+            app.state.searches = OrderedDict()
             yield
 
     app = FastAPI(title="biblio-search", lifespan=lifespan, docs_url=None, redoc_url=None)
@@ -145,6 +166,14 @@ def create_app(
     def backend(database: Database) -> SearchBackend:
         value: SearchBackend = app.state.backends[database]
         return value
+
+    def keep(log: SearchLog) -> str:
+        searches: OrderedDict[str, SearchLog] = app.state.searches
+        search_id = secrets.token_urlsafe(9)
+        searches[search_id] = log
+        while len(searches) > KEPT_SEARCHES:
+            searches.popitem(last=False)
+        return search_id
 
     @app.get("/", include_in_schema=False)
     async def index() -> FileResponse:
@@ -201,7 +230,11 @@ def create_app(
                 raise QuestionError(
                     f"none of the chosen databases can be searched yet; choose {names} to search"
                 )
+            reports: list[tuple[Database, SearchReport]] = []
             for database in selection.searchable:
+                equation = ""
+                result: SearchResult | None = None
+                records: tuple[ArticleSummary, ...] = ()
                 steps = search_progress(
                     question,
                     options,
@@ -212,19 +245,46 @@ def create_app(
                 async for event in steps:
                     match event:
                         case EquationBuilt():
+                            equation = event.equation
                             built = {"database": event.database, "equation": event.equation}
                             yield ServerSentEvent(data=built, event="equation")
                         case CountReceived():
+                            result = event.result
                             count = count_view(database, event.result)
                             yield ServerSentEvent(data=count, event="count")
                         case RecordsReceived():
-                            records = [record_view(database, r) for r in event.records]
-                            listed = {"database": event.database, "records": records}
+                            records = event.records
+                            views = [record_view(database, r) for r in event.records]
+                            listed = {"database": event.database, "records": views}
                             yield ServerSentEvent(data=listed, event="records")
+                if result is None:
+                    raise DatabaseError(f"{DATABASE_LABELS[database]} returned no count")
+                reports.append((database, SearchReport(equation, result, records)))
+            log = build_log(question, options, selection, reports, max_records=body.max_records)
         except (QuestionError, DatabaseError) as exc:
             yield ServerSentEvent(data={"message": str(exc)}, event="error")
             return
-        yield ServerSentEvent(data={}, event="done")
+        yield ServerSentEvent(data=merged_view(keep(log), log), event="done")
+
+    @app.get("/api/searches/{search_id}/{kind}")
+    async def download(search_id: str, kind: DownloadKind) -> PlainTextResponse:
+        log: SearchLog | None = app.state.searches.get(search_id)
+        if log is None:
+            raise HTTPException(404, "that search is no longer kept: run it again")
+        if kind == "log":
+            body = render_log(log)
+        elif kind == "ris":
+            body = to_ris(log.merged.records)
+        else:
+            body = to_csv(log.merged.records)
+        extension, media_type = _DOWNLOADS[kind]
+        stamp = log.searched_at.strftime("%Y%m%d-%H%M")
+        name = f"biblio-search-{stamp}.{extension}"
+        return PlainTextResponse(
+            body,
+            media_type=media_type,
+            headers={"Content-Disposition": f'attachment; filename="{name}"'},
+        )
 
     @app.post("/api/tune", response_class=EventSourceResponse)
     async def tune_search(body: TuneRequest) -> AsyncIterator[ServerSentEvent]:
