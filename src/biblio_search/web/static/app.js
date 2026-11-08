@@ -735,7 +735,33 @@ function handleEvent(name, data, steps, sections) {
     progressStep(data.message, "failed");
   } else if (name === "done") {
     progressStep("Search finished", "done");
+    renderMerged(data);
   }
+}
+
+const DOWNLOAD_LABELS = [
+  ["log", "Search log (.md)"],
+  ["ris", "Records (.ris)"],
+  ["csv", "Records (.csv)"],
+];
+
+// Unión de todas las bases sin duplicados y descargas del registro reproducible.
+function renderMerged(data) {
+  const box = el("div", "merged");
+  const summary = el("p", "merged-summary");
+  summary.append(
+    el("strong", null, `${formatCount(data.unique)} unique records`),
+    ` · ${formatCount(data.identified)} retrieved, ${formatCount(data.duplicates)} duplicates removed (same DOI or PMID)`,
+  );
+  const links = el("div", "merged-downloads");
+  for (const [kind, text] of DOWNLOAD_LABELS) {
+    const link = el("a", "button small", text);
+    link.href = data.downloads[kind];
+    link.download = "";
+    links.append(link);
+  }
+  box.append(summary, links);
+  $("results").prepend(box);
 }
 
 function parseEvent(block) {
