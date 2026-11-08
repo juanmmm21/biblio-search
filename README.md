@@ -97,6 +97,15 @@ University of Jaén) in *"Cómo aprender (y enseñar) a realizar búsquedas en C
   inside quotes, as zero-distance proximity (`"family caregiv*"~0`). OpenAlex indexes no
   thesaurus, so headings become free text, and each database explains in a note anything it
   had to search differently from how the question was written.
+- **One record per work, whatever the database.** Records from every database are merged
+  by DOI or PMID (OpenAlex knows the PMID of the works PubMed indexes), never by title,
+  because two different works can share one and a wrong merge would hide a record from the
+  screening. A record that shares its DOI with one group and its PMID with another joins both.
+- **A search that can be repeated.** Every run can be saved as a Markdown log with the date,
+  tool version, databases and why they were chosen, each equation and how the database read
+  it, the counts, the duplicates removed, and the question itself as TOML next to the exact
+  command that runs it again. Records export to RIS (CRLF lines, as the format asks) and to
+  CSV with a BOM for Excel and cells that cannot be read as formulas.
 - **Records are database-neutral.** A search returns ids and a second call fetches their
   summaries, in the same order, for every database; each record keeps its own identifier
   (PMID or OpenAlex work id) and link, so the CLI and the page list them side by side.
@@ -144,8 +153,11 @@ biblio-search/
 │   ├── catalog.py        # databases, vocabularies and labels shared by the CLI and the web
 │   ├── pipeline.py       # question -> equation -> search -> records, step by step
 │   ├── tuning.py         # condition and lever counts, Del Pino's sensitivity warnings
+│   ├── merge.py          # union of several databases without duplicates (DOI or PMID)
+│   ├── search_log.py     # reproducible Markdown log of a search
+│   ├── export.py         # merged records as RIS and CSV
 │   ├── web/
-│   │   ├── app.py        # FastAPI app: preview, check, import/export, SSE search and tuning
+│   │   ├── app.py        # FastAPI app: preview, check, import/export, SSE search, tuning, downloads
 │   │   ├── views.py      # JSON views of questions, selections, counts and records
 │   │   ├── server.py     # binds 127.0.0.1 and opens the browser
 │   │   └── static/       # the page: HTML, CSS and JavaScript, no build step
@@ -192,10 +204,12 @@ The page opens in your browser on a free port of `127.0.0.1` (`--port` to fix it
   button that loads the variant you prefer into the form.
 - **Search** every chosen database and follow each step live. Each database gets its own
   block: the record count, how it read its equation and the first records, with links to
-  PubMed or OpenAlex and to the DOI.
+  PubMed or OpenAlex and to the DOI. When it finishes, the records of every database are
+  merged without duplicates and you can download the search log, and the records as RIS
+  or CSV.
 - **Import and export** the question as a TOML file, the same format the CLI reads.
 
-![Live search in PubMed and OpenAlex: each step as it happens, the record counts, how each database read its equation and the records to screen](docs/screenshots/search.png)
+![Live search in PubMed and OpenAlex: each step as it happens, the merged records with the log, RIS and CSV downloads, the record counts, how each database read its equation and the records to screen](docs/screenshots/search.png)
 
 ![Tuning: the count of each condition on its own and without it, and of each sensitivity or specificity lever, in PubMed and OpenAlex](docs/screenshots/tuning.png)
 
@@ -415,6 +429,8 @@ Results: 2516
   1. OpenAlex W2145256182 (2010) Associations between drug burden index and physical function in older people in residential aged care facilities | Age and Ageing [article]
   2. OpenAlex W4391296183 (2024) Coping and anxiety symptoms in family carers of dependent older people: Mediation and moderation effects of subjective caregiver burden | Journal of Nursing Scholarship [article]
   3. OpenAlex W1923367678 (2014) Suicide in Older People | Crisis [article]
+
+Merged: 6 records retrieved, 0 duplicates removed (same DOI or PMID), 6 unique
 ```
 
 Counts change as the databases grow. The translation lines are worth reading: here PubMed
@@ -441,6 +457,37 @@ gives you your own, ten times larger:
 ```bash
 export OPENALEX_API_KEY="..."         # optional, read from the environment only
 ```
+
+### Documenting and exporting the search
+
+A search is only useful in a review if someone else can repeat it. `search` can write a
+log of the run and the merged records of every database:
+
+```bash
+biblio-search search examples/caregiver-burden.toml --max 500 \
+  --log search-log.md --ris records.ris --csv records.csv
+```
+
+```console
+Merged: 1,000 records retrieved, 25 duplicates removed (same DOI or PMID), 975 unique
+Log written to search-log.md
+RIS written to records.ris
+CSV written to records.csv
+```
+
+- **The log** (`--log`, Markdown) records the date in UTC, the biblio-search version, the
+  question and its options, the databases with the reasons they were chosen, and for each
+  one the equation, how the database understood it, the records found and retrieved, and
+  any term it did not recognise. It ends with the number of duplicates removed and the
+  question as TOML with the command that repeats the search, ready for a methods section.
+- **RIS** (`--ris`) imports into Zotero, Mendeley or EndNote. A work found in both PubMed
+  and OpenAlex appears once, with both databases and both ids in its note.
+- **CSV** (`--csv`) has one row per work: title, authors, journal, year, DOI, PMID, the
+  databases that returned it, their ids, link and publication types.
+
+Only the records retrieved are exported (`--max`, up to 10,000 per database), so set it to
+the full count when you want every record; the log shows both numbers side by side. The web
+interface offers the same three files once a search finishes.
 
 ### Tuning sensitivity and specificity
 
