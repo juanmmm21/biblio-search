@@ -30,6 +30,7 @@ from biblio_search.decs import (
     suggest_mesh,
 )
 from biblio_search.eutils import MAX_RETMAX, EutilsClient, EutilsConfig
+from biblio_search.export import to_csv, to_ris
 from biblio_search.mesh import MeshThesaurus
 from biblio_search.models import (
     ArticleSummary,
@@ -44,6 +45,7 @@ from biblio_search.models import (
 from biblio_search.openalex import OpenAlexClient, OpenAlexConfig
 from biblio_search.pipeline import SearchBackend, SearchReport, run_search
 from biblio_search.question_file import load_question, question_to_data
+from biblio_search.search_log import SearchLog, build_log, render_log
 from biblio_search.selection import DatabaseSelection, SelectionMode, select_databases
 from biblio_search.tuning import SCREENING_WINDOW, Direction, TuningReport, tune
 
@@ -110,6 +112,13 @@ def _build_parser() -> argparse.ArgumentParser:
     search.add_argument(
         "--email", help="contact email sent to NCBI (default: NCBI_EMAIL environment variable)"
     )
+    search.add_argument(
+        "--log", type=Path, help="write a reproducible Markdown log of the search to this file"
+    )
+    search.add_argument(
+        "--ris", type=Path, help="write the merged records as RIS (Zotero, Mendeley, EndNote)"
+    )
+    search.add_argument("--csv", type=Path, help="write the merged records as CSV")
 
     tune_parser = commands.add_parser(
         "tune",
@@ -374,6 +383,33 @@ async def _search(
     return reports
 
 
+def format_merge(log: SearchLog) -> str:
+    merged = log.merged
+    return (
+        f"Merged: {merged.identified:,} records retrieved, {merged.duplicates:,} duplicates "
+        f"removed (same DOI or PMID), {len(merged.records):,} unique"
+    )
+
+
+def _write_outputs(log: SearchLog, args: argparse.Namespace) -> list[str]:
+    outputs: list[tuple[Path | None, str, str]] = [
+        (args.log, render_log(log), "Log"),
+        (args.ris, to_ris(log.merged.records), "RIS"),
+        (args.csv, to_csv(log.merged.records), "CSV"),
+    ]
+    written: list[str] = []
+    for path, text, label in outputs:
+        if path is None:
+            continue
+        try:
+            # newline="" deja intactos los CRLF que piden RIS y CSV.
+            path.write_text(text, encoding="utf-8", newline="")
+        except OSError as exc:
+            raise ValueError(f"cannot write {path}: {exc.strerror or exc}") from exc
+        written.append(f"{label} written to {path}")
+    return written
+
+
 _DIRECTION_LABELS = {Direction.SENSITIVE: "more sensitive", Direction.SPECIFIC: "more specific"}
 
 
@@ -456,7 +492,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("\n\n".join([searched_in, *blocks]))
             return 0
         reports = asyncio.run(_search(question, options, selection.searchable, args))
-        print("\n\n".join([searched_in] + [format_report(db, r) for db, r in reports]))
+        log = build_log(question, options, selection, reports, max_records=args.max_records)
+        blocks = [searched_in, *(format_report(db, r) for db, r in reports), format_merge(log)]
+        print("\n\n".join(blocks))
+        for line in _write_outputs(log, args):
+            print(line)
         return 0
     except QuestionError as exc:
         print(f"biblio-search: {exc}", file=sys.stderr)

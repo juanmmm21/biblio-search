@@ -126,6 +126,32 @@ def test_search_prints_report(
     )
 
 
+def test_search_writes_log_ris_and_csv(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    _patch_client(monkeypatch, [])
+    log, ris, csv = tmp_path / "log.md", tmp_path / "records.ris", tmp_path / "records.csv"
+    args = ["search", str(EXAMPLE), "--max", "3", "--log", str(log), "--ris", str(ris)]
+    assert main([*args, "--csv", str(csv)]) == 0
+
+    out = capsys.readouterr().out
+    assert "Merged: 6 records retrieved, 0 duplicates removed (same DOI or PMID), 6 unique" in out
+    assert f"Log written to {log}" in out and f"CSV written to {csv}" in out
+    text = log.read_text(encoding="utf-8")
+    assert text.startswith("# Search log") and "--database pubmed --database openalex" in text
+    assert ris.read_bytes().count(b"ER  - \r\n") == 6
+    assert csv.read_bytes().startswith(b"\xef\xbb\xbftitle,authors")
+
+
+def test_search_reports_files_it_cannot_write(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    _patch_client(monkeypatch, [])
+    target = tmp_path / "missing" / "log.md"
+    assert main(["search", str(EXAMPLE), "--max", "3", "--log", str(target)]) == 1
+    assert f"cannot write {target}" in capsys.readouterr().err
+
+
 def test_search_reports_ncbi_errors(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
