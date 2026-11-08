@@ -29,7 +29,7 @@ SEARCH_PARAM = "search.title_and_abstract.exact"
 PAGE_SIZE = 100
 # OpenAlex no pagina más allá de page * per_page = 10 000 sin cursor (y el cursor pide clave).
 MAX_RESULTS = 10_000
-SUMMARY_FIELDS = "id,doi,display_name,publication_year,authorships,primary_location,type"
+SUMMARY_FIELDS = "id,ids,doi,display_name,publication_year,authorships,primary_location,type"
 _WORK_ID = re.compile(r"^W\d+$")
 _RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
 # Un Retry-After largo es el presupuesto diario agotado: esperar no sirve, se avisa ya.
@@ -128,6 +128,15 @@ def _source(work: Mapping[str, object]) -> str:
     return _as_str(source.get("display_name")) if isinstance(source, Mapping) else ""
 
 
+def _pmid(work: Mapping[str, object]) -> str | None:
+    ids = work.get("ids")
+    if not isinstance(ids, Mapping):
+        return None
+    # OpenAlex da el PMID como URL de PubMed (https://pubmed.ncbi.nlm.nih.gov/20501606).
+    pmid = _as_str(ids.get("pmid")).rstrip("/").rsplit("/", 1)[-1]
+    return pmid if pmid.isdigit() else None
+
+
 def parse_work(work: Mapping[str, object]) -> ArticleSummary:
     """Turn one OpenAlex work into an :class:`ArticleSummary`."""
     url = _as_str(work.get("id"))
@@ -144,6 +153,7 @@ def parse_work(work: Mapping[str, object]) -> ArticleSummary:
         doi=_as_str(work.get("doi")).removeprefix(DOI_URL_PREFIX) or None,
         publication_types=(work_type,) if work_type else (),
         url=url,
+        pmid=_pmid(work),
     )
 
 

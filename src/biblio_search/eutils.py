@@ -169,6 +169,7 @@ def parse_summaries(payload: Mapping[str, object]) -> tuple[ArticleSummary, ...]
                 doi=_doi(record),
                 publication_types=_as_strings(record.get("pubtype")),
                 url=f"{PUBMED_URL}{uid}/",
+                pmid=uid,
             )
         )
     return tuple(summaries)

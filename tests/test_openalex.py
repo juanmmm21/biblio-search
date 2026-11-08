@@ -50,6 +50,7 @@ def test_parse_work_fixture() -> None:
     assert record.doi == "10.1111/jnu.12957"
     assert record.publication_types == ("article",)
     assert record.url == "https://openalex.org/W4391296183"
+    assert record.pmid == "38282022"
     assert len(record.authors) == 4
 
 
@@ -58,6 +59,12 @@ def test_parse_work_tolerates_missing_fields() -> None:
         {"id": "https://openalex.org/W1", "display_name": None, "primary_location": None}
     )
     assert (record.title, record.journal, record.year, record.doi) == ("", "", None, None)
+    assert record.pmid is None
+
+
+def test_parse_work_ignores_a_pmid_that_is_not_a_number() -> None:
+    record = parse_work({"id": "https://openalex.org/W1", "ids": {"pmid": "https://x.org/abc"}})
+    assert record.pmid is None
     assert record.authors == record.publication_types == ()
     with pytest.raises(OpenAlexError, match="no id"):
         parse_work({"display_name": "x"})

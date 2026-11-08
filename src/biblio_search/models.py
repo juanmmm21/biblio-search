@@ -319,7 +319,9 @@ class ArticleSummary:
 
     ``record_id`` is the identifier in the database that returned it (a PMID in PubMed, a
     work id such as ``W2167987787`` in OpenAlex) and ``url`` its page there. ``doi`` is bare
-    (``10.1000/x``), without the ``https://doi.org/`` prefix.
+    (``10.1000/x``), without the ``https://doi.org/`` prefix, and ``pmid`` is the PubMed id
+    of the same work when the database knows it: both are what tells duplicates apart when
+    the records of several databases are merged.
     """
 
     record_id: str
@@ -330,6 +332,7 @@ class ArticleSummary:
     doi: str | None
     publication_types: tuple[str, ...]
     url: str
+    pmid: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -57,6 +57,7 @@ def test_parse_summaries_fixture() -> None:
     assert first.journal == "Home healthcare now"
     assert first.year == 2026
     assert first.doi == "10.1097/NHH.0000000000001471"
+    assert first.pmid == first.record_id
     assert first.publication_types == ("Journal Article", "Review")
     assert first.url == "https://pubmed.ncbi.nlm.nih.gov/42970524/"
 
