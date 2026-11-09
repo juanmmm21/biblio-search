@@ -45,6 +45,14 @@ from biblio_search.models import (
 from biblio_search.openalex import OpenAlexClient, OpenAlexConfig
 from biblio_search.pipeline import SearchBackend, SearchReport, run_search
 from biblio_search.question_file import load_question, question_to_data
+from biblio_search.screening import (
+    AddedSearch,
+    EntryFilter,
+    ScreeningError,
+    ScreeningStore,
+    merged_entries,
+    render_flow,
+)
 from biblio_search.search_log import SearchLog, build_log, render_log
 from biblio_search.selection import DatabaseSelection, SelectionMode, select_databases
 from biblio_search.tuning import SCREENING_WINDOW, Direction, TuningReport, tune
@@ -119,6 +127,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--ris", type=Path, help="write the merged records as RIS (Zotero, Mendeley, EndNote)"
     )
     search.add_argument("--csv", type=Path, help="write the merged records as CSV")
+    search.add_argument(
+        "--screening",
+        type=Path,
+        help="add the merged records to this screening file (created if it does not exist)",
+    )
 
     tune_parser = commands.add_parser(
         "tune",
@@ -151,6 +164,22 @@ def _build_parser() -> argparse.ArgumentParser:
     decs.add_argument(
         "--email", help="contact email sent to NCBI (default: NCBI_EMAIL environment variable)"
     )
+    screening = commands.add_parser(
+        "screening", help="show the flow diagram counts of a screening file and export records"
+    )
+    screening.add_argument("screening_file", type=Path, help="screening file (SQLite)")
+    screening.add_argument(
+        "--which",
+        choices=["include", "maybe", "exclude", "pending", "all"],
+        default="include",
+        help="records to export (default: include)",
+    )
+    screening.add_argument("--ris", type=Path, help="write the chosen records as RIS")
+    screening.add_argument("--csv", type=Path, help="write the chosen records as CSV")
+    screening.add_argument(
+        "--log", type=Path, help="write the logs of every search added to the screening"
+    )
+
     ui = commands.add_parser(
         "ui", help="open the web interface in the browser (local only, nobody else can reach it)"
     )
@@ -397,17 +426,46 @@ def _write_outputs(log: SearchLog, args: argparse.Namespace) -> list[str]:
         (args.ris, to_ris(log.merged.records), "RIS"),
         (args.csv, to_csv(log.merged.records), "CSV"),
     ]
-    written: list[str] = []
-    for path, text, label in outputs:
-        if path is None:
-            continue
-        try:
-            # newline="" deja intactos los CRLF que piden RIS y CSV.
-            path.write_text(text, encoding="utf-8", newline="")
-        except OSError as exc:
-            raise ValueError(f"cannot write {path}: {exc.strerror or exc}") from exc
-        written.append(f"{label} written to {path}")
-    return written
+    return [_write_text(path, text, label) for path, text, label in outputs if path is not None]
+
+
+def _write_text(path: Path, text: str, label: str) -> str:
+    try:
+        # newline="" deja intactos los CRLF que piden RIS y CSV.
+        path.write_text(text, encoding="utf-8", newline="")
+    except OSError as exc:
+        raise ValueError(f"cannot write {path}: {exc.strerror or exc}") from exc
+    return f"{label} written to {path}"
+
+
+def format_added(added: AddedSearch, path: Path) -> str:
+    return (
+        f"Screening: search {added.search_number} added to {path}, {added.new_records:,} new "
+        f"records, {added.already_known:,} already there"
+    )
+
+
+def _add_to_screening(log: SearchLog, path: Path) -> str:
+    with ScreeningStore.open(path) as store:
+        return format_added(store.add_search(log), path)
+
+
+def _screening(args: argparse.Namespace) -> list[str]:
+    path: Path = args.screening_file
+    if not path.exists():
+        raise ScreeningError(f"{path} does not exist; add a search with search --screening")
+    which: EntryFilter = args.which
+    with ScreeningStore.open(path) as store:
+        lines = [render_flow(store.summary())]
+        records = merged_entries(store.entries(which)) if args.ris or args.csv else ()
+        if args.ris is not None:
+            lines.append(_write_text(args.ris, to_ris(records), f"RIS ({which})"))
+        if args.csv is not None:
+            lines.append(_write_text(args.csv, to_csv(records), f"CSV ({which})"))
+        if args.log is not None:
+            logs = "\n\n---\n\n".join(store.search_logs())
+            lines.append(_write_text(args.log, logs, "Search logs"))
+    return lines
 
 
 _DIRECTION_LABELS = {Direction.SENSITIVE: "more sensitive", Direction.SPECIFIC: "more specific"}
@@ -461,6 +519,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.command == "ui":
             return _ui(args)
+        if args.command == "screening":
+            print("\n".join(_screening(args)))
+            return 0
         if args.command == "decs":
             text = " ".join(args.words)
             suggestions = asyncio.run(_suggest(text, _config(args), _decs_config()))
@@ -497,11 +558,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("\n\n".join(blocks))
         for line in _write_outputs(log, args):
             print(line)
+        if args.screening is not None:
+            print(_add_to_screening(log, args.screening))
         return 0
     except QuestionError as exc:
         print(f"biblio-search: {exc}", file=sys.stderr)
         return 2
-    except (DatabaseError, ValueError) as exc:
+    except (DatabaseError, ScreeningError, ValueError) as exc:
         print(f"biblio-search: {exc}", file=sys.stderr)
         return 1
 

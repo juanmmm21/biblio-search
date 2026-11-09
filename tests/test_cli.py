@@ -21,6 +21,7 @@ from biblio_search.pipeline import SearchBackend
 from biblio_search.pubmed_query import PubMedDialect
 from biblio_search.question_file import load_question
 from biblio_search.ratelimit import RateLimiter
+from biblio_search.screening import Decision, ScreeningStore
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 EXAMPLE = EXAMPLES / "caregiver-burden.toml"
@@ -150,6 +151,43 @@ def test_search_reports_files_it_cannot_write(
     target = tmp_path / "missing" / "log.md"
     assert main(["search", str(EXAMPLE), "--max", "3", "--log", str(target)]) == 1
     assert f"cannot write {target}" in capsys.readouterr().err
+
+
+def test_search_adds_to_a_screening_and_screening_exports(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    _patch_client(monkeypatch, [])
+    screening = tmp_path / "screening.sqlite"
+    args = ["search", str(EXAMPLE), "--max", "3", "--screening", str(screening)]
+    assert main(args) == 0
+    assert (
+        f"Screening: search 1 added to {screening}, 6 new records, 0 already there"
+        in capsys.readouterr().out
+    )
+    assert main(args) == 0
+    second_run = capsys.readouterr().out
+    assert "search 2 added" in second_run and "0 new records, 6 already there" in second_run
+
+    with ScreeningStore.open(screening) as store:
+        first, second, *_ = store.entries()
+        store.decide(first.entry_id, Decision.INCLUDE)
+        store.decide(second.entry_id, Decision.EXCLUDE, "not caregivers")
+    ris, logs = tmp_path / "included.ris", tmp_path / "logs.md"
+    assert main(["screening", str(screening), "--ris", str(ris), "--log", str(logs)]) == 0
+    out = capsys.readouterr().out
+    assert "Records identified: 12\nDuplicates removed: 6\nRecords screened: 6" in out
+    assert "    not caregivers: 1" in out and f"RIS (include) written to {ris}" in out
+    assert ris.read_bytes().count(b"ER  - \r\n") == 1
+    assert logs.read_text(encoding="utf-8").count("# Search log") == 2
+
+
+def test_screening_needs_an_existing_file(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    missing = tmp_path / "nothing.sqlite"
+    assert main(["screening", str(missing)]) == 1
+    assert "does not exist" in capsys.readouterr().err
+    assert not missing.exists()
 
 
 def test_search_reports_ncbi_errors(
