@@ -50,7 +50,7 @@ def test_fold_ignores_case_accents_and_spaces() -> None:
     assert not MUSCLES.names("musculo")
 
 
-def test_parse_descriptors_from_the_official_server() -> None:
+def test_parse_descriptors_from_the_public_api() -> None:
     assert parse_descriptors(load_fixture("decs_words_musculos.json")) == (MUSCLES,)
 
 

@@ -25,11 +25,12 @@ OpenAlex works API (`api.openalex.org/works`, no key), recorded on 2026-11-06:
 - `openalex_error_wildcard.json`: the HTTP 400 answer to a wildcard inside a quoted phrase
   (`"family caregiv*"`).
 
-DeCS API (`search-by-words`, `lang=es`, `format=json`), generated on 2026-11-07 by BIREME's
-own server code (github.com/bireme/decs-api, commit of 2026-10-26: its endpoint tests run
-against real DeCS records with the search index faked), because the public API needs a
-licence key:
+DeCS API (`api.bvsalud.org/decs/v2/search-by-words`, `lang=es`, `format=json`), recorded on
+2026-11-09 with a licence key (the key travels in a header and is not in the files). The real
+answers are large (25 to 33 objects), so each fixture keeps only the objects the tests need,
+unchanged:
 
-- `decs_words_musculos.json`: `words=musculos`, one hit (Muscles, D009132).
-- `decs_words_with_qualifier.json`: the same plus a qualifier hit (/poisoning, Q000506).
-- `decs_words_empty.json`: a search with no hits.
+- `decs_words_musculos.json`: `words=musculos`, trimmed to its Muscles hit (D009132).
+- `decs_words_with_qualifier.json`: that hit plus the qualifier hit (/poisoning, Q000506) of
+  `words=envenenamiento`.
+- `decs_words_empty.json`: `words=xyzqwv`, a search with no hits (HTTP 200, empty list).
