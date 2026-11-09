@@ -84,6 +84,12 @@ University of Jaén) in *"Cómo aprender (y enseñar) a realizar búsquedas en C
   identifier of every descriptor it translates, and the English name it gives is confirmed
   in MeSH like any other heading. Only an exact Spanish name or synonym is renamed; a text
   that merely shares words with a descriptor is left alone.
+- **A local model drafts, the thesaurus decides.** The optional assistant asks a model
+  running on your own machine through Ollama (no paid API, the question never leaves it) to
+  decompose a sentence into SPC, PICO or free concepts. It answers through a JSON schema with
+  one fixed key per component, so small models cannot skip one; terms the question format
+  would reject are left out with a note, and every MeSH heading it proposes goes through the
+  same check as a hand-written one, so an invented descriptor ends up as free text.
 - **Database choice is explained, not magic.** The automatic choice is a handful of
   deterministic rules (MeSH headings or an SPC/PICO question lead to PubMed, an education
   question or ERIC descriptors to ERIC, exact sciences to arXiv, OpenAlex always), and every
@@ -155,6 +161,7 @@ biblio-search/
 │   ├── mesh.py           # MeSH lookups through E-utilities (db=mesh)
 │   ├── decs.py           # DeCS client and the Spanish-to-MeSH bridge (optional, licensed)
 │   ├── check.py          # heading checks, synonym suggestions, unknown terms to free text
+│   ├── assistant.py      # optional Ollama assistant: a sentence -> a checked question draft
 │   ├── selection.py      # rule-based database choice with reasons, manual override
 │   ├── catalog.py        # databases, vocabularies and labels shared by the CLI and the web
 │   ├── pipeline.py       # question -> equation -> search -> records, step by step
@@ -168,11 +175,11 @@ biblio-search/
 │   │   ├── views.py      # JSON views of questions, selections, counts and records
 │   │   ├── server.py     # binds 127.0.0.1 and opens the browser
 │   │   └── static/       # the page: HTML, CSS and JavaScript, no build step
-│   └── __main__.py       # command line interface (ui, build, check, decs, databases, search, tune, screening)
+│   └── __main__.py       # command line interface (ui, draft, build, check, decs, databases, search, tune, screening)
 ├── examples/
 │   ├── caregiver-burden.toml       # worked example from Del Pino (2017)
 │   └── peer-tutoring-reading.toml  # education question with free concepts and ERIC terms
-└── tests/                # unit tests and recorded NCBI, OpenAlex and DeCS fixtures, no network access
+└── tests/                # unit tests and recorded NCBI, OpenAlex, DeCS and Ollama fixtures, no network access
 ```
 
 ## Installation
@@ -199,6 +206,9 @@ biblio-search ui examples/caregiver-burden.toml   # open a question file
 The page opens in your browser on a free port of `127.0.0.1` (`--port` to fix it,
 `--no-browser` to just print the address). Nobody else on the network can reach it.
 
+- **Draft it from a sentence** (optional): write the question in Spanish or English and
+  *Draft with local model* fills in the format, the components and their terms, with the MeSH
+  headings already checked. See [Drafting a question with a local model](#drafting-a-question-with-a-local-model).
 - **Write the question** as SPC, PICO or free concepts. Every condition holds its terms:
   MeSH or ERIC headings with their scope, and free text with its field.
 - **Watch the strategy take shape**: the highlighted equation with a copy button, Del Pino's
@@ -220,6 +230,8 @@ The page opens in your browser on a free port of `127.0.0.1` (`--port` to fix it
   duplicates removed, screened, pending, maybe, excluded by reason and included, and the
   included records download as RIS or CSV.
 - **Import and export** the question as a TOML file, the same format the CLI reads.
+
+![Drafting from a Spanish sentence: the local model fills in a PICO question in English, the comparison is described but not searched, and every MeSH heading it proposed is confirmed](docs/screenshots/draft.png)
 
 ![Live search in PubMed and OpenAlex: each step as it happens, the merged records with the log, RIS and CSV downloads, the record counts, how each database read its equation and the records to screen](docs/screenshots/search.png)
 
@@ -362,6 +374,61 @@ MeSH descriptors for 'tejido muscular' (through DeCS, confirmed in MeSH):
 
 DeCS is © BIREME/PAHO/WHO and is used here under its licence conditions; the descriptors
 shown are those of the DeCS edition its API serves.
+
+### Drafting a question with a local model
+
+biblio-search can ask a language model running on your own computer to draft the question
+for you. It is optional and free: the model runs in [Ollama](https://ollama.com), nothing is
+sent to any online service, and everything else works the same without it.
+
+```bash
+ollama pull qwen3:8b                  # once; any model with structured outputs works
+export BIBLIO_SEARCH_MODEL=qwen3:8b   # optional, qwen3:8b is the default
+```
+
+```console
+$ biblio-search draft --output fibromyalgia.toml "¿El ejercicio en el agua mejora el dolor en la fibromialgia comparado con el ejercicio en tierra?"
+Draft by qwen3:8b (local, through Ollama): review it before searching.
+Discipline: health · format: pico
+In English: Does water exercise improve pain in fibromyalgia compared to land exercise?
+  population: People with fibromyalgia
+    fibromyalgia: Fibromyalgia [MeSH], fibromyalgia, fibro*, myalgia*
+  intervention: Water exercise
+    water exercise: Exercise [MeSH], water exercis*, aquatic exercis*, water therapy*
+  comparison: Land exercise
+    (not searched)
+  outcome: Pain reduction
+    pain improvement: Pain [MeSH], pain reduc*, pain improv*, pain relief*
+
+Changed from what the model proposed:
+  the comparison is described but left out of the search, as Cochrane advises; add its terms by hand if you need them
+
+MeSH check of 3 controlled terms
+  ok          Fibromyalgia (D005356) [fibromyalgia]
+  ok          Exercise (D015444) [water exercise]
+              also retrieves its narrower headings; use a no_explode scope to leave them out
+  ok          Pain (D010146) [pain improvement]
+              also retrieves its narrower headings; use a no_explode scope to leave them out
+...
+Equation after the check: (Fibromyalgia[mh] OR fibromyalgia[tiab] OR fibro*[tiab] OR myalgia*[tiab]) AND (Exercise[mh] OR "water exercis*"[tiab] OR "aquatic exercis*"[tiab] OR "water therapy*"[tiab]) AND (Pain[mh] OR "pain reduc*"[tiab] OR "pain improv*"[tiab] OR "pain relief*"[tiab])
+
+Question file written to fibromyalgia.toml
+
+Next: biblio-search databases fibromyalgia.toml
+```
+
+The model first classifies the question (discipline, and SPC for health questions about
+experiences or relationships, PICO for the effect of an intervention, free concepts outside
+health) and then decomposes it into the components of that format, with English headings
+and free text. `--discipline` and `--format` keep your own choice instead. The draft is then
+checked against MeSH like any question: headings MeSH does not know are searched as free
+text. Without `--output` the question file is printed. In the web interface the
+*Draft with local model* button does the same and loads the draft into the form.
+
+A small local model is a starting point, not a librarian: read every condition, merge or
+split the ones it got wrong and add the synonyms you know before searching. `OLLAMA_HOST`
+points to an Ollama on another machine, and the model is unloaded a minute after the draft
+so it does not keep the GPU busy.
 
 ### Choosing the databases
 
@@ -709,6 +776,11 @@ The test suite never touches the network: NCBI responses are recorded under
   so plurals, abbreviations or Spanish terms are not found. Set `DECS_API_KEY` to have Spanish
   headings translated, look the concept up in the [MeSH Browser](https://meshb.nlm.nih.gov/)
   or keep it as free text.
+- **`Ollama is not running at http://127.0.0.1:11434`**: the assistant is optional; start
+  Ollama (`ollama serve`, or its app) or write the question by hand. Set `OLLAMA_HOST` if it
+  runs on another machine.
+- **`the model ... is not installed`**: run `ollama pull` with that model name, or choose an
+  installed one with `BIBLIO_SEARCH_MODEL` or `--model`.
 - **`DeCS rejected the API key (HTTP 401)`**: the key in `DECS_API_KEY` is missing a
   character or no longer valid; DeCS licences last three years.
 - **`NCBI ... failed after 4 attempts: HTTP 429`**: too many requests from your IP, often
