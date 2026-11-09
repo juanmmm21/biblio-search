@@ -1084,6 +1084,50 @@ async function runTune() {
   }
 }
 
+// --- Borrador con el modelo local ---
+
+function setDraftStatus(text, isError = false) {
+  const status = $("draft-status");
+  status.textContent = text;
+  status.classList.toggle("error", isError);
+}
+
+async function runDraft() {
+  const text = $("question-text").value.trim();
+  const notes = $("draft-notes");
+  notes.replaceChildren();
+  notes.hidden = true;
+  if (!text) {
+    setDraftStatus("Write the question first, in Spanish or English.", true);
+    return;
+  }
+  const button = $("draft-button");
+  button.disabled = true;
+  button.textContent = "Drafting…";
+  setDraftStatus("Asking the local model; the first time it loads, it can take half a minute…");
+  // La disciplina elegida se respeta; el formato lo propone el modelo según la pregunta.
+  const discipline = $("question-discipline").value || null;
+  try {
+    const result = await postJson("/api/draft", { text, discipline });
+    loadQuestion(result.question);
+    setDraftStatus(`Drafted by ${result.model}: review every term before searching.`);
+    if (result.english) notes.append(el("li", null, `In English: ${result.english}`));
+    for (const note of result.notes) notes.append(el("li", null, note));
+    notes.hidden = !notes.children.length;
+    if (result.check) {
+      lastCheck = { ...result.check, fixed: result.question };
+      $("check-panel").hidden = false;
+      renderCheck(lastCheck);
+      $("apply-check").hidden = true;
+    }
+  } catch (error) {
+    setDraftStatus(error.message, true);
+  } finally {
+    button.disabled = false;
+    button.textContent = "Draft with local model";
+  }
+}
+
 // --- Importar y exportar ---
 
 async function importFile(file) {
@@ -1132,6 +1176,7 @@ async function init() {
     if (lastCheck) loadQuestion(lastCheck.fixed);
   });
   $("export-button").addEventListener("click", exportFile);
+  $("draft-button").addEventListener("click", runDraft);
   $("import-file").addEventListener("change", (e) => {
     const [file] = e.target.files;
     if (file) importFile(file);

@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 import biblio_search.web as web
 from biblio_search import openalex
 from biblio_search.__main__ import main
+from biblio_search.assistant import AssistantError, LanguageModel
 from biblio_search.decs import DecsDescriptor, DecsSearch, parse_descriptors
 from biblio_search.eutils import EutilsError, parse_search, parse_summaries
 from biblio_search.models import ArticleSummary, Database, SearchResult
@@ -80,6 +81,7 @@ def make_client(
     with_openalex: bool = True,
     decs: DecsSearch | None = None,
     screening: Path | None = None,
+    assistant: LanguageModel | None = None,
 ) -> TestClient:
     ncbi = fake or FakeNcbi()
     openalex_backend = other or FakeOpenAlex()
@@ -97,11 +99,21 @@ def make_client(
         assert decs is not None
         yield decs
 
+    @asynccontextmanager
+    async def open_assistant() -> AsyncIterator[LanguageModel]:
+        assert assistant is not None
+        yield assistant
+
     backends: dict[Database, BackendFactory] = (
         {Database.OPENALEX: open_openalex} if with_openalex else {}
     )
     app = create_app(
-        open_client, initial, backends, open_decs if decs is not None else None, screening
+        open_client,
+        initial,
+        backends,
+        open_decs if decs is not None else None,
+        screening,
+        open_assistant if assistant is not None else None,
     )
     return TestClient(app, base_url=BASE_URL)
 
@@ -654,3 +666,67 @@ def test_tune_reports_errors_as_events() -> None:
         response = test_client.post("/api/tune", json={"question": data})
     events = sse_events(response.text)
     assert events[-1] == ("error", {"message": "NCBI is down"})
+
+
+class RecordedOllama:
+    """The recorded qwen3:8b answers for the fibromyalgia question."""
+
+    model = "qwen3:8b"
+
+    def __init__(self, error: AssistantError | None = None) -> None:
+        self.error = error
+        self.schemas: list[Mapping[str, object]] = []
+
+    async def complete_json(
+        self, system: str, prompt: str, schema: Mapping[str, object]
+    ) -> Mapping[str, object]:
+        if self.error is not None:
+            raise self.error
+        self.schemas.append(schema)
+        properties = schema["properties"]
+        assert isinstance(properties, dict)
+        name = "classify" if "discipline" in properties else "draft"
+        message = load_fixture(f"ollama_{name}_fibromyalgia.json")["message"]
+        assert isinstance(message, dict)
+        answer: Mapping[str, object] = json.loads(message["content"])
+        return answer
+
+
+FIBROMYALGIA = (
+    "¿El ejercicio en el agua mejora el dolor en la fibromialgia comparado con el ejercicio "
+    "en tierra?"
+)
+
+
+def test_draft_fills_the_form_and_checks_the_headings() -> None:
+    ollama = RecordedOllama()
+    with make_client(assistant=ollama) as client:
+        response = client.post("/api/draft", json={"text": FIBROMYALGIA, "discipline": "health"})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["model"] == "qwen3:8b"
+    assert body["english"].startswith("Does water exercise improve pain")
+    question = body["question"]
+    assert question["question"] == FIBROMYALGIA
+    assert (question["format"], question["discipline"]) == ("pico", "health")
+    assert any("comparison" in note for note in body["notes"])
+    statuses = {check["term"]: check["status"] for check in body["check"]["checks"]}
+    assert statuses == {"Fibromyalgia": "not_found", "Exercise": "not_found", "Pain": "not_found"}
+    assert body["check"]["decs_hint"] is None
+    # La disciplina viene elegida pero el formato no: el modelo clasifica igualmente.
+    assert len(ollama.schemas) == 2
+
+
+def test_draft_errors_are_readable() -> None:
+    with make_client() as client:
+        response = client.post("/api/draft", json={"text": FIBROMYALGIA})
+    assert response.status_code == 503
+    assert "without the local assistant" in response.json()["error"]
+
+    down = RecordedOllama(AssistantError("Ollama is not running at http://127.0.0.1:11434"))
+    with make_client(assistant=down) as client:
+        response = client.post("/api/draft", json={"text": FIBROMYALGIA})
+        assert response.status_code == 503
+        assert "not running" in response.json()["error"]
+        assert client.post("/api/draft", json={"text": "  "}).status_code == 422
+        assert client.post("/api/draft", json={"text": "x" * 1001}).status_code == 422

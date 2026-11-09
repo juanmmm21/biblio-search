@@ -22,6 +22,12 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from biblio_search.assistant import (
+    MAX_QUESTION_LENGTH,
+    AssistantError,
+    LanguageModel,
+    draft_question,
+)
 from biblio_search.catalog import DATABASE_LABELS, DIALECTS
 from biblio_search.check import apply_check, check_question
 from biblio_search.decs import DecsMeshThesaurus, DecsSearch
@@ -32,8 +38,11 @@ from biblio_search.models import (
     ArticleSummary,
     Database,
     DatabaseError,
+    Discipline,
     QuestionError,
+    QuestionFormat,
     SearchResult,
+    StrategyOptions,
 )
 from biblio_search.pipeline import (
     CountReceived,
@@ -95,6 +104,7 @@ QuestionBody = Annotated[dict[str, Any], Body()]
 ClientFactory = Callable[[], AbstractAsyncContextManager[NcbiClient]]
 BackendFactory = Callable[[], AbstractAsyncContextManager[SearchBackend]]
 DecsFactory = Callable[[], AbstractAsyncContextManager[DecsSearch]]
+AssistantFactory = Callable[[], AbstractAsyncContextManager[LanguageModel]]
 
 
 class SearchRequest(BaseModel):
@@ -109,6 +119,12 @@ class TuneRequest(BaseModel):
 
 class ImportRequest(BaseModel):
     text: str
+
+
+class DraftRequest(BaseModel):
+    text: str = Field(max_length=MAX_QUESTION_LENGTH)
+    discipline: Discipline | None = None
+    format: QuestionFormat | None = None
 
 
 class ScreenSearchRequest(BaseModel):
@@ -140,6 +156,7 @@ def create_app(
     open_backends: Mapping[Database, BackendFactory] | None = None,
     open_decs: DecsFactory | None = None,
     screening_path: Path | None = None,
+    open_assistant: AssistantFactory | None = None,
 ) -> FastAPI:
     """Build the application.
 
@@ -148,7 +165,8 @@ def create_app(
     server, so every request shares its rate limiter. ``open_decs``, only when the user has a
     DeCS key, lets the check understand Spanish headings. ``initial_question`` is shown when
     the page opens. ``screening_path`` is the SQLite file where searches are screened; it is
-    only created when the first search is added to it.
+    only created when the first search is added to it. ``open_assistant`` opens the local
+    model that drafts a question from a sentence; without it that button answers an error.
     """
     others = dict(open_backends or {})
     searchable = frozenset({Database.PUBMED, *others})
@@ -162,6 +180,10 @@ def create_app(
                 backends[database] = await stack.enter_async_context(factory())
             decs = await stack.enter_async_context(open_decs()) if open_decs else None
             app.state.decs = decs
+            assistant = (
+                await stack.enter_async_context(open_assistant()) if open_assistant else None
+            )
+            app.state.assistant = assistant
             app.state.client = ncbi
             app.state.backends = backends
             app.state.searches = OrderedDict()
@@ -194,6 +216,10 @@ def create_app(
     @app.exception_handler(DatabaseError)
     async def database_error(request: Request, exc: DatabaseError) -> JSONResponse:
         return JSONResponse({"error": str(exc)}, 502)
+
+    @app.exception_handler(AssistantError)
+    async def assistant_error(request: Request, exc: AssistantError) -> JSONResponse:
+        return JSONResponse({"error": str(exc)}, 503)
 
     @app.exception_handler(ScreeningError)
     async def screening_error(request: Request, exc: ScreeningError) -> JSONResponse:
@@ -275,6 +301,27 @@ def create_app(
         fixed = apply_check(question, result)
         view = check_view(result, decs=decs is not None)
         return {**view, "fixed": question_to_data(fixed, options)}
+
+    @app.post("/api/draft")
+    async def draft(body: DraftRequest) -> dict[str, object]:
+        model: LanguageModel | None = app.state.assistant
+        if model is None:
+            raise AssistantError("this interface was started without the local assistant")
+        result = await draft_question(
+            body.text,
+            model,
+            discipline=body.discipline,
+            question_format=body.format,
+            thesaurus=MeshThesaurus(client()),
+        )
+        return {
+            "question": question_to_data(result.question, StrategyOptions()),
+            "english": result.english,
+            "model": result.model,
+            "notes": list(result.notes),
+            # El modelo escribe en inglés: el aviso de DeCS no aplica a su borrador.
+            "check": check_view(result.check, decs=True) if result.check else None,
+        }
 
     @app.post("/api/search", response_class=EventSourceResponse)
     async def search(body: SearchRequest) -> AsyncIterator[ServerSentEvent]:

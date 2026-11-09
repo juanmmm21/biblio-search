@@ -31,6 +31,11 @@
           <span class="field-label">What do you want to find out?</span>
           <textarea id="question-text" rows="3" placeholder="e.g. What is the relationship between burden and anxiety in family caregivers of older people?"></textarea>
         </label>
+        <div class="draft-row">
+          <button type="button" class="button small" id="draft-button">Draft with local model</button>
+          <span class="hint" id="draft-status">Optional: a model on this computer (Ollama) proposes components and terms, and MeSH checks them.</span>
+        </div>
+        <ul class="draft-notes" id="draft-notes" hidden></ul>
         <div class="field-row">
           <label class="field">
             <span class="field-label">Format</span>

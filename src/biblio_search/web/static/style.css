@@ -105,6 +105,9 @@ body {
 
 .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; min-width: 0; border: 0; padding: 0; }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.draft-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: -4px 0 14px; }
+.draft-row .hint.error { color: var(--danger); }
+.draft-notes { margin: -8px 0 14px; padding-left: 18px; color: var(--muted); font-size: 13px; }
 .field-label { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
 .field-label .hint { text-transform: none; letter-spacing: 0; font-weight: 400; }
 

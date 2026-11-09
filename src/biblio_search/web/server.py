@@ -9,6 +9,7 @@ from pathlib import Path
 
 import uvicorn
 
+from biblio_search.assistant import OllamaClient, OllamaConfig
 from biblio_search.decs import DecsClient, DecsConfig
 from biblio_search.eutils import EutilsClient, EutilsConfig
 from biblio_search.models import Database
@@ -53,6 +54,10 @@ def serve(
             raise RuntimeError("DeCS is only opened when DECS_API_KEY is set")
         return DecsClient(decs_config)
 
+    def open_assistant() -> OllamaClient:
+        # Abrir el cliente no conecta: si Ollama no está, el botón lo dice al pulsarlo.
+        return OllamaClient(OllamaConfig.from_env())
+
     backends: dict[Database, BackendFactory] = {Database.OPENALEX: open_openalex}
     app = create_app(
         open_client,
@@ -60,6 +65,7 @@ def serve(
         backends,
         open_decs if decs_config is not None else None,
         screening_path,
+        open_assistant,
     )
     sock = bind_local(port)
     try:
