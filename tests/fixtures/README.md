@@ -34,3 +34,11 @@ unchanged:
 - `decs_words_with_qualifier.json`: that hit plus the qualifier hit (/poisoning, Q000506) of
   `words=envenenamiento`.
 - `decs_words_empty.json`: `words=xyzqwv`, a search with no hits (HTTP 200, empty list).
+
+Ollama chat API (`/api/chat`, `stream: false`, `think: false`, `temperature: 0`), recorded on
+2026-11-09 from a local Ollama with `qwen3:8b`, for the question *¿El ejercicio en el agua
+mejora el dolor en la fibromialgia comparado con el ejercicio en tierra?*:
+
+- `ollama_classify_fibromyalgia.json`: the classification (health, PICO).
+- `ollama_draft_fibromyalgia.json`: the PICO decomposition with its schema.
+- `ollama_error_model_not_found.json`: the HTTP 404 body for a model that is not pulled.
