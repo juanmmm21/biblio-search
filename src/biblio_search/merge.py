@@ -62,7 +62,8 @@ def normalize_doi(doi: str) -> str:
     return text.strip().casefold()
 
 
-def _keys(record: ArticleSummary) -> tuple[str, ...]:
+def identity_keys(record: ArticleSummary) -> tuple[str, ...]:
+    """The keys that identify a work across databases: its DOI and its PMID, when known."""
     keys: list[str] = []
     if record.doi and (doi := normalize_doi(record.doi)):
         keys.append(f"doi:{doi}")
@@ -91,7 +92,7 @@ def merge_records(batches: Sequence[tuple[Database, Sequence[ArticleSummary]]]) 
         for record in records:
             identified += 1
             source = RecordSource(database, record.record_id, record.url)
-            keys = _keys(record)
+            keys = identity_keys(record)
             matches = sorted({owner[key] for key in keys if key in owner})
             if not matches:
                 gid = identified
