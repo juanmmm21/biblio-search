@@ -145,6 +145,21 @@
         <ol class="progress" id="tune-progress"></ol>
         <div id="tuning"><p class="empty">Counts every condition on its own and every lever of the method one at a time, so you can widen or narrow the search with real numbers.</p></div>
       </div>
+
+      <div class="panel" id="screening-panel">
+        <div class="panel-head">
+          <h2 class="panel-title">Screening <span class="hint" id="screening-file"></span></h2>
+          <div class="search-controls" id="screening-exports" hidden>
+            <a class="button small" href="/api/screening/export/ris?which=include" download>Included (.ris)</a>
+            <a class="button small" href="/api/screening/export/csv?which=include" download>Included (.csv)</a>
+            <a class="button small" href="/api/screening/export/log" download>Search logs (.md)</a>
+          </div>
+        </div>
+        <div id="flow"><p class="empty">Run a search and add its records to the screening. Every decision is saved as you make it, so you can stop and come back later.</p></div>
+        <div class="filters" id="screening-filters" role="group" aria-label="Show records"></div>
+        <datalist id="reason-list"></datalist>
+        <ol class="records screening-list" id="screening-list"></ol>
+      </div>
     </section>
   </main>
 

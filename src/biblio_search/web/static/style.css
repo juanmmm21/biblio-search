@@ -334,3 +334,42 @@ a.button { text-decoration: none; display: inline-block; }
 .lever.specific .tag { background: var(--mesh-soft); color: var(--mesh); }
 .advice p { margin: 0 0 6px; font-weight: 600; }
 .advice ul { margin: 0; padding-left: 18px; }
+
+.flow { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+.flow-row { display: flex; flex-wrap: wrap; align-items: stretch; gap: 10px; }
+.flow-arrow { align-self: center; color: var(--muted); font-size: 18px; }
+.flow-box { flex: 1 1 120px; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--card); }
+.flow-count { font: 600 24px/1.1 var(--serif); font-variant-numeric: tabular-nums; }
+.flow-label { color: var(--muted); font-size: 13px; }
+.flow-box.muted .flow-count { color: var(--muted); }
+.flow-box.strong .flow-count, .flow-box.include .flow-count { color: var(--accent); }
+.flow-box.include { border-color: var(--accent); background: var(--accent-soft); }
+.flow-box.exclude .flow-count { color: var(--danger); }
+.flow-box.maybe .flow-count { color: var(--free); }
+.flow-reasons { margin: 6px 0 0; padding-left: 16px; font-size: 12.5px; color: var(--muted); }
+
+.filters { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
+.filters[hidden] { display: none; }
+.filter {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  padding: 3px 12px;
+  font: 500 13px var(--sans);
+  color: var(--muted);
+  cursor: pointer;
+}
+.filter:hover { color: var(--accent); border-color: var(--accent); }
+.filter.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.screening-list { padding-left: 0; list-style: none; }
+.screen-item { border-left: 3px solid transparent; padding-left: 12px; }
+.screen-item.include { border-left-color: var(--accent); }
+.screen-item.exclude { border-left-color: var(--danger); }
+.screen-item.maybe { border-left-color: var(--free); }
+.screen-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.screen-actions input.screen-reason { flex: 1 1 220px; min-width: 0; padding: 4px 10px; font-size: 14px; }
+.decide.include.chosen { background: var(--accent); border-color: var(--accent); color: #fff; }
+.decide.maybe.chosen { background: var(--free); border-color: var(--free); color: #fff; }
+.decide.exclude.chosen { background: var(--danger); border-color: var(--danger); color: #fff; }
+.search-controls[hidden] { display: none; }

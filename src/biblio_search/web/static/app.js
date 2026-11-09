@@ -661,34 +661,40 @@ function resultSection(sections, database, label) {
   return sections[database];
 }
 
+function externalLink(className, text, href) {
+  const link = el("a", className, text);
+  link.href = href;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  return link;
+}
+
+// Autores, revista y año, identificadores y DOI: lo mismo en resultados y en el cribado.
+function recordMeta(record, ids) {
+  const authors = record.authors.length > 3
+    ? `${record.authors.slice(0, 3).join(", ")} et al.`
+    : record.authors.join(", ");
+  const meta = el("div", "record-meta");
+  meta.append(el("span", null, authors || "No authors listed"));
+  const where = [record.journal, record.year].filter(Boolean).join(", ");
+  if (where) meta.append(el("span", null, where));
+  meta.append(...ids);
+  if (record.doi) meta.append(externalLink("hint", `doi:${record.doi}`, `https://doi.org/${encodeURI(record.doi)}`));
+  return meta;
+}
+
+function typeChips(record) {
+  const types = el("div", "chips");
+  types.append(...record.publication_types.map((t) => el("span", "chip type", t)));
+  return types;
+}
+
 function renderRecords(list, records) {
   list.replaceChildren(...records.map((record) => {
     const item = el("li", "record");
-    const title = el("a", "record-title", record.title || "(no title)");
-    title.href = record.url;
-    title.target = "_blank";
-    title.rel = "noopener noreferrer";
-    const authors = record.authors.length > 3
-      ? `${record.authors.slice(0, 3).join(", ")} et al.`
-      : record.authors.join(", ");
-    const meta = el("div", "record-meta");
-    meta.append(el("span", null, authors || "No authors listed"));
-    const where = [record.journal, record.year].filter(Boolean).join(", ");
-    if (where) meta.append(el("span", null, where));
-    meta.append(el("span", "hint", `${record.id_label} ${record.id}`));
-    if (record.doi) {
-      const doi = el("a", "hint", `doi:${record.doi}`);
-      doi.href = `https://doi.org/${encodeURI(record.doi)}`;
-      doi.target = "_blank";
-      doi.rel = "noopener noreferrer";
-      meta.append(doi);
-    }
-    item.append(title, meta);
-    if (record.publication_types.length) {
-      const types = el("div", "chips");
-      types.append(...record.publication_types.map((t) => el("span", "chip type", t)));
-      item.append(types);
-    }
+    const title = externalLink("record-title", record.title || "(no title)", record.url);
+    item.append(title, recordMeta(record, [el("span", "hint", `${record.id_label} ${record.id}`)]));
+    if (record.publication_types.length) item.append(typeChips(record));
     return item;
   }));
 }
@@ -760,7 +766,12 @@ function renderMerged(data) {
     link.download = "";
     links.append(link);
   }
-  box.append(summary, links);
+  const screen = el("button", "button small primary", "Add to screening");
+  screen.type = "button";
+  const added = el("span", "hint");
+  screen.addEventListener("click", () => addToScreening(data.search_id, screen, added));
+  links.append(screen);
+  box.append(summary, links, added);
   $("results").prepend(box);
 }
 
@@ -815,6 +826,164 @@ async function runSearch() {
     progressStep(error.message, "failed");
   } finally {
     button.disabled = false;
+  }
+}
+
+// --- Cribado (persistido en SQLite por el servidor) ---
+
+const SCREENING_FILTERS = [
+  ["pending", "Pending"],
+  ["maybe", "Maybe"],
+  ["include", "Included"],
+  ["exclude", "Excluded"],
+  ["all", "All"],
+];
+const DECISIONS = [
+  ["include", "Include"],
+  ["maybe", "Maybe"],
+  ["exclude", "Exclude"],
+];
+let screeningFilter = "pending";
+
+async function addToScreening(searchId, button, status) {
+  button.disabled = true;
+  try {
+    const { added } = await postJson("/api/screening/searches", { search_id: searchId });
+    status.textContent = `Added as search ${added.search_number}: ${formatCount(added.new_records)} new records, ${formatCount(added.already_known)} already in the screening`;
+    await loadScreening();
+    $("screening-panel").scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (error) {
+    button.disabled = false;
+    status.textContent = `Could not add it: ${error.message}`;
+  }
+}
+
+async function loadScreening() {
+  try {
+    const response = await fetch(`/api/screening?which=${encodeURIComponent(screeningFilter)}`);
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "the server rejected the request");
+    renderScreening(payload);
+  } catch (error) {
+    $("screening-list").replaceChildren(el("li", "banner error", `Screening unavailable: ${error.message}`));
+  }
+}
+
+function flowBox(label, count, className) {
+  const box = el("div", `flow-box ${className || ""}`);
+  box.append(el("div", "flow-count", formatCount(count)), el("div", "flow-label", label));
+  return box;
+}
+
+// Recuentos de un diagrama de flujo tipo PRISMA, en su orden de arriba abajo.
+function renderFlow(flow) {
+  if (!flow.screened) {
+    return el("p", "empty", "Run a search and add its records to the screening. Every decision is saved as you make it, so you can stop and come back later.");
+  }
+  const diagram = el("div", "flow");
+  const top = el("div", "flow-row");
+  top.append(
+    flowBox(`identified in ${flow.searches} ${flow.searches === 1 ? "search" : "searches"}`, flow.identified),
+    el("span", "flow-arrow", "→"),
+    flowBox("duplicates removed", flow.duplicates, "muted"),
+    el("span", "flow-arrow", "→"),
+    flowBox("records screened", flow.screened, "strong"),
+  );
+  const outcomes = el("div", "flow-row");
+  const excluded = flowBox("excluded", flow.excluded, "exclude");
+  if (flow.exclusion_reasons.length) {
+    const reasons = el("ul", "flow-reasons");
+    reasons.append(...flow.exclusion_reasons.map((r) => el("li", null, `${r.reason}: ${formatCount(r.count)}`)));
+    excluded.append(reasons);
+  }
+  outcomes.append(
+    flowBox("pending", flow.pending, "pending"),
+    flowBox("maybe (read full text)", flow.maybe, "maybe"),
+    excluded,
+    flowBox("included", flow.included, "include"),
+  );
+  diagram.append(top, outcomes);
+  return diagram;
+}
+
+function renderFilters(flow) {
+  const counts = { pending: flow.pending, maybe: flow.maybe, include: flow.included, exclude: flow.excluded, all: flow.screened };
+  $("screening-filters").replaceChildren(...SCREENING_FILTERS.map(([value, label]) => {
+    const button = el("button", `filter${value === screeningFilter ? " active" : ""}`, `${label} (${formatCount(counts[value])})`);
+    button.type = "button";
+    button.setAttribute("aria-pressed", String(value === screeningFilter));
+    button.addEventListener("click", () => {
+      screeningFilter = value;
+      loadScreening();
+    });
+    return button;
+  }));
+}
+
+function screeningItem(entry) {
+  const item = el("li", `record screen-item ${entry.decision || "pending"}`);
+  const [first] = entry.sources;
+  const title = first ? externalLink("record-title", entry.title || "(no title)", first.url) : el("span", "record-title", entry.title || "(no title)");
+  const ids = entry.sources.map((s) => externalLink("hint", `${s.id_label} ${s.id}`, s.url));
+  item.append(title, recordMeta(entry, ids));
+  if (entry.publication_types.length) item.append(typeChips(entry));
+  const actions = el("div", "screen-actions");
+  const reason = el("input", "screen-reason");
+  reason.type = "text";
+  reason.maxLength = 500;
+  reason.placeholder = "Reason (e.g. wrong population)";
+  reason.setAttribute("list", "reason-list");
+  reason.setAttribute("aria-label", "Reason for the decision");
+  reason.value = entry.reason;
+  actions.append(reason);
+  for (const [value, label] of DECISIONS) {
+    const button = el("button", `button small decide ${value}${entry.decision === value ? " chosen" : ""}`, label);
+    button.type = "button";
+    button.setAttribute("aria-pressed", String(entry.decision === value));
+    button.addEventListener("click", () => decide(entry.id, value, reason.value, actions));
+    actions.append(button);
+  }
+  if (entry.decision) {
+    const undo = el("button", "button small ghost", "Undo");
+    undo.type = "button";
+    undo.addEventListener("click", () => decide(entry.id, null, "", actions));
+    actions.append(undo);
+  }
+  item.append(actions);
+  return item;
+}
+
+async function decide(id, decision, reason, actions) {
+  for (const button of actions.querySelectorAll("button")) button.disabled = true;
+  try {
+    await postJson(`/api/screening/records/${id}`, { decision, reason });
+    await loadScreening();
+  } catch (error) {
+    for (const button of actions.querySelectorAll("button")) button.disabled = false;
+    actions.append(el("span", "banner error", error.message));
+  }
+}
+
+function renderScreening(payload) {
+  const { flow, entries } = payload;
+  $("screening-file").textContent = payload.file ? `saved in ${payload.file}` : "";
+  $("screening-exports").hidden = !flow.screened;
+  $("flow").replaceChildren(renderFlow(flow));
+  $("screening-filters").hidden = !flow.screened;
+  if (flow.screened) renderFilters(flow);
+  $("reason-list").replaceChildren(...flow.exclusion_reasons
+    .map((r) => r.reason)
+    .filter((r) => r !== "no reason given")
+    .map((r) => {
+      const option = el("option");
+      option.value = r;
+      return option;
+    }));
+  const list = $("screening-list");
+  if (flow.screened && !entries.length) {
+    list.replaceChildren(el("li", "empty", screeningFilter === "pending" ? "Every record has a decision." : "No records here."));
+  } else {
+    list.replaceChildren(...entries.map(screeningItem));
   }
 }
 
@@ -969,6 +1138,7 @@ async function init() {
     e.target.value = "";
   });
   renderForm();
+  loadScreening();
   try {
     const response = await fetch("/api/initial");
     const { question } = await response.json();
