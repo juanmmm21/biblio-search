@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -12,6 +13,7 @@ from test_tuning import CountingBackend
 
 import biblio_search.__main__ as cli
 from biblio_search.__main__ import format_check, format_record, format_suggestion, main
+from biblio_search.assistant import OllamaClient, OllamaConfig
 from biblio_search.check import QuestionCheck
 from biblio_search.decs import DecsClient, DecsConfig, DecsDescriptor, DecsSuggestion
 from biblio_search.eutils import EutilsClient, EutilsConfig
@@ -546,3 +548,83 @@ def test_tune_with_none_relevant_asks_how_to_narrow(
     assert "None of the first 50 records is relevant" in out
     assert "  - add a condition the relevant records must meet" in out
     assert "--none-relevant." not in out
+
+
+def _patch_ollama(monkeypatch: pytest.MonkeyPatch, seen: list[dict[str, object]]) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        seen.append(body)
+        classify = "discipline" in body["format"]["properties"]
+        name = "ollama_classify_fibromyalgia.json" if classify else "ollama_draft_fibromyalgia.json"
+        return httpx.Response(200, json=load_fixture(name))
+
+    def factory(config: OllamaConfig) -> OllamaClient:
+        return OllamaClient(config, transport=httpx.MockTransport(handler))
+
+    monkeypatch.setattr(cli, "OllamaClient", factory)
+
+
+FIBROMYALGIA = (
+    "¿El ejercicio en el agua mejora el dolor en la fibromialgia comparado con el ejercicio "
+    "en tierra?"
+)
+
+
+def test_draft_writes_a_checked_question_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sent: list[dict[str, object]] = []
+    _patch_ollama(monkeypatch, sent)
+    _patch_mesh_client(monkeypatch, [])
+    output = tmp_path / "draft.toml"
+
+    assert main(["draft", "--model", "gemma3:4b", "--output", str(output), FIBROMYALGIA]) == 0
+
+    out = capsys.readouterr().out
+    assert "Draft by gemma3:4b (local, through Ollama)" in out
+    assert "Discipline: health · format: pico" in out
+    assert "  comparison: Land exercise\n    (not searched)" in out
+    assert "the comparison is described but left out" in out
+    # Los encabezados que MeSH no confirma pasan a texto libre y no se avisa de DeCS.
+    assert "not found   Fibromyalgia [fibromyalgia]: searched as free text instead" in out
+    assert "DECS_API_KEY" not in out
+    assert f"Question file written to {output}" in out
+    assert [body["model"] for body in sent] == ["gemma3:4b", "gemma3:4b"]
+    question, _ = load_question(output)
+    assert question.text == FIBROMYALGIA
+    assert [c.role.value for c in question.components] == [
+        "population",
+        "intervention",
+        "comparison",
+        "outcome",
+    ]
+
+
+def test_draft_keeps_the_chosen_format_and_prints_the_file(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sent: list[dict[str, object]] = []
+    _patch_ollama(monkeypatch, sent)
+    _patch_mesh_client(monkeypatch, [])
+
+    assert main(["draft", "--discipline", "health", "--format", "pico", FIBROMYALGIA]) == 0
+
+    out = capsys.readouterr().out
+    assert len(sent) == 1
+    assert 'format = "pico"' in out and "[[components]]" in out
+
+
+def test_draft_without_ollama_says_so(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("refused", request=request)
+
+    monkeypatch.setattr(
+        cli,
+        "OllamaClient",
+        lambda config: OllamaClient(config, transport=httpx.MockTransport(handler)),
+    )
+
+    assert main(["draft", "una pregunta"]) == 1
+    assert "Ollama is not running" in capsys.readouterr().err

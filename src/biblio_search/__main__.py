@@ -11,6 +11,13 @@ from dataclasses import replace
 from pathlib import Path
 
 from biblio_search import __version__
+from biblio_search.assistant import (
+    AssistantError,
+    Draft,
+    OllamaClient,
+    OllamaConfig,
+    draft_question,
+)
 from biblio_search.catalog import (
     DATABASE_LABELS,
     DIALECTS,
@@ -36,15 +43,18 @@ from biblio_search.models import (
     ArticleSummary,
     Database,
     DatabaseError,
+    Discipline,
     QuestionError,
+    QuestionFormat,
     StrategyOptions,
     StructuredQuestion,
     TermCheck,
+    TermKind,
     TermStatus,
 )
 from biblio_search.openalex import OpenAlexClient, OpenAlexConfig
 from biblio_search.pipeline import SearchBackend, SearchReport, run_search
-from biblio_search.question_file import load_question, question_to_data
+from biblio_search.question_file import dump_question, load_question, question_to_data
 from biblio_search.screening import (
     DEFAULT_SCREENING_FILE,
     AddedSearch,
@@ -163,6 +173,29 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     decs.add_argument("words", nargs="+", help="Spanish term, e.g. cuidadores familiares")
     decs.add_argument(
+        "--email", help="contact email sent to NCBI (default: NCBI_EMAIL environment variable)"
+    )
+    draft = commands.add_parser(
+        "draft",
+        help="draft a question file from a sentence with a local model (optional, needs Ollama)",
+    )
+    draft.add_argument(
+        "words", nargs="+", help="the question in your own words, in Spanish or English"
+    )
+    draft.add_argument(
+        "--discipline",
+        choices=[discipline.value for discipline in Discipline],
+        help="keep this discipline instead of letting the model guess it",
+    )
+    draft.add_argument(
+        "--format",
+        dest="question_format",
+        choices=[question_format.value for question_format in QuestionFormat],
+        help="keep this format instead of letting the model guess it",
+    )
+    draft.add_argument("--model", help="Ollama model (default: BIBLIO_SEARCH_MODEL or qwen3:8b)")
+    draft.add_argument("--output", type=Path, help="write the question file (TOML) here")
+    draft.add_argument(
         "--email", help="contact email sent to NCBI (default: NCBI_EMAIL environment variable)"
     )
     screening = commands.add_parser(
@@ -354,6 +387,64 @@ async def _suggest(
         return await suggest_mesh(text, decs, MeshThesaurus(client))
 
 
+def format_draft(draft: Draft) -> str:
+    question = draft.question
+    discipline = question.discipline.value if question.discipline else "not set"
+    lines = [
+        f"Draft by {draft.model} (local, through Ollama): review it before searching.",
+        f"Discipline: {discipline} · format: {question.format.value}",
+    ]
+    if draft.english:
+        lines.append(f"In English: {draft.english}")
+    for component in question.components:
+        lines.append(f"  {component.role.value}: {component.description}")
+        if not component.conditions:
+            lines.append("    (not searched)")
+        for condition in component.conditions:
+            terms = ", ".join(
+                f"{t.text} [{VOCABULARY_LABELS.get(t.vocabulary or '', t.vocabulary)}]"
+                if t.kind is TermKind.CONTROLLED
+                else t.text
+                for t in condition.terms
+            )
+            lines.append(f"    {condition.label}: {terms}")
+    if draft.notes:
+        lines += ["", "Changed from what the model proposed:"]
+        lines += [f"  {note}" for note in draft.notes]
+    return "\n".join(lines)
+
+
+async def _draft(args: argparse.Namespace) -> Draft:
+    ollama = OllamaConfig.from_env()
+    if args.model:
+        ollama = replace(ollama, model=args.model)
+    discipline = Discipline(args.discipline) if args.discipline else None
+    question_format = QuestionFormat(args.question_format) if args.question_format else None
+    async with OllamaClient(ollama) as model, EutilsClient(_config(args)) as client:
+        return await draft_question(
+            " ".join(args.words),
+            model,
+            discipline=discipline,
+            question_format=question_format,
+            thesaurus=MeshThesaurus(client),
+        )
+
+
+def _print_draft(draft: Draft, output: Path | None) -> None:
+    blocks = [format_draft(draft)]
+    if draft.check is not None:
+        equation = DIALECTS[Database.PUBMED].render(draft.question, StrategyOptions())
+        # El modelo escribe los encabezados en inglés: el aviso de DeCS no aplica aquí.
+        blocks.append(format_check(draft.check, equation, decs=True))
+    toml = dump_question(draft.question, StrategyOptions())
+    if output is None:
+        blocks.append(toml.rstrip("\n"))
+    else:
+        blocks.append(_write_text(output, toml, "Question file"))
+        blocks.append(f"Next: biblio-search databases {output}")
+    print("\n\n".join(blocks))
+
+
 def format_selection(
     selection: DatabaseSelection,
     question: StructuredQuestion,
@@ -536,6 +627,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             suggestions = asyncio.run(_suggest(text, _config(args), _decs_config()))
             print(format_suggestions(text, suggestions))
             return 0
+        if args.command == "draft":
+            _print_draft(asyncio.run(_draft(args)), args.output)
+            return 0
         question, file_options = load_question(args.question_file)
         options = _merge_options(file_options, args)
         if args.command == "build":
@@ -573,7 +667,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     except QuestionError as exc:
         print(f"biblio-search: {exc}", file=sys.stderr)
         return 2
-    except (DatabaseError, ScreeningError, ValueError) as exc:
+    except (DatabaseError, ScreeningError, AssistantError, ValueError) as exc:
         print(f"biblio-search: {exc}", file=sys.stderr)
         return 1
 
