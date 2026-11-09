@@ -49,12 +49,24 @@ from biblio_search.question_file import (
     parse_question_text,
     question_to_data,
 )
+from biblio_search.screening import (
+    MAX_REASON_LENGTH,
+    Decision,
+    EntryFilter,
+    FlowSummary,
+    ScreeningError,
+    ScreeningStore,
+    merged_entries,
+)
 from biblio_search.search_log import SearchLog, build_log, render_log
 from biblio_search.selection import select_databases
 from biblio_search.tuning import tune
 from biblio_search.web.views import (
+    added_view,
     check_view,
     count_view,
+    entry_view,
+    flow_view,
     merged_view,
     preview_view,
     record_view,
@@ -99,6 +111,22 @@ class ImportRequest(BaseModel):
     text: str
 
 
+class ScreenSearchRequest(BaseModel):
+    search_id: str
+
+
+class DecisionRequest(BaseModel):
+    # None devuelve el registro a pendiente.
+    decision: Decision | None
+    reason: str = Field(default="", max_length=MAX_REASON_LENGTH)
+
+
+EMPTY_FLOW = FlowSummary(
+    searches=0, identified=0, screened=0, included=0, excluded=0, maybe=0, exclusion_reasons=()
+)
+ScreeningExport = Literal["ris", "csv", "log"]
+
+
 def _same_origin(request: Request) -> bool:
     origin = request.headers.get("origin")
     if origin is None:
@@ -111,6 +139,7 @@ def create_app(
     initial_question: Mapping[str, object] | None = None,
     open_backends: Mapping[Database, BackendFactory] | None = None,
     open_decs: DecsFactory | None = None,
+    screening_path: Path | None = None,
 ) -> FastAPI:
     """Build the application.
 
@@ -118,7 +147,8 @@ def create_app(
     of every other searchable database. Each one is opened once for the whole life of the
     server, so every request shares its rate limiter. ``open_decs``, only when the user has a
     DeCS key, lets the check understand Spanish headings. ``initial_question`` is shown when
-    the page opens.
+    the page opens. ``screening_path`` is the SQLite file where searches are screened; it is
+    only created when the first search is added to it.
     """
     others = dict(open_backends or {})
     searchable = frozenset({Database.PUBMED, *others})
@@ -135,7 +165,13 @@ def create_app(
             app.state.client = ncbi
             app.state.backends = backends
             app.state.searches = OrderedDict()
-            yield
+            app.state.screening = None
+            try:
+                yield
+            finally:
+                store: ScreeningStore | None = app.state.screening
+                if store is not None:
+                    store.close()
 
     app = FastAPI(title="biblio-search", lifespan=lifespan, docs_url=None, redoc_url=None)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=list(LOCAL_HOSTS))
@@ -159,6 +195,10 @@ def create_app(
     async def database_error(request: Request, exc: DatabaseError) -> JSONResponse:
         return JSONResponse({"error": str(exc)}, 502)
 
+    @app.exception_handler(ScreeningError)
+    async def screening_error(request: Request, exc: ScreeningError) -> JSONResponse:
+        return JSONResponse({"error": str(exc)}, 409)
+
     def client() -> NcbiClient:
         value: NcbiClient = app.state.client
         return value
@@ -174,6 +214,27 @@ def create_app(
         while len(searches) > KEPT_SEARCHES:
             searches.popitem(last=False)
         return search_id
+
+    # Las operaciones de SQLite son locales y de milisegundos: se hacen en el propio bucle, que
+    # además es el único hilo que toca la conexión (sqlite3 no la comparte entre hilos).
+    def screening(*, create: bool) -> ScreeningStore | None:
+        """The open screening file; None when it does not exist yet and ``create`` is false."""
+        if screening_path is None:
+            raise ScreeningError("this interface was started without a screening file")
+        store: ScreeningStore | None = app.state.screening
+        if store is None and (create or screening_path.exists()):
+            store = ScreeningStore.open(screening_path)
+            app.state.screening = store
+        return store
+
+    def screening_to_write() -> ScreeningStore:
+        store = screening(create=False)
+        if store is None:
+            raise ScreeningError("there is nothing to screen yet: add a search first")
+        return store
+
+    def flow(store: ScreeningStore | None) -> dict[str, object]:
+        return flow_view(store.summary() if store is not None else EMPTY_FLOW)
 
     @app.get("/", include_in_schema=False)
     async def index() -> FileResponse:
@@ -283,6 +344,54 @@ def create_app(
         return PlainTextResponse(
             body,
             media_type=media_type,
+            headers={"Content-Disposition": f'attachment; filename="{name}"'},
+        )
+
+    @app.get("/api/screening")
+    async def screening_state(which: EntryFilter = "pending") -> dict[str, object]:
+        store = screening(create=False)
+        entries = store.entries(which) if store is not None else ()
+        return {
+            "file": str(screening_path),
+            "flow": flow(store),
+            "entries": [entry_view(entry) for entry in entries],
+        }
+
+    @app.post("/api/screening/searches")
+    async def screen_search(body: ScreenSearchRequest) -> dict[str, object]:
+        log: SearchLog | None = app.state.searches.get(body.search_id)
+        if log is None:
+            raise HTTPException(404, "that search is no longer kept: run it again")
+        store = screening(create=True)
+        if store is None:
+            raise ScreeningError(f"cannot open {screening_path}")
+        added = store.add_search(log)
+        return {"added": added_view(added), "flow": flow(store)}
+
+    @app.post("/api/screening/records/{entry_id}")
+    async def decide(entry_id: int, body: DecisionRequest) -> dict[str, object]:
+        store = screening_to_write()
+        if body.decision is None:
+            entry = store.undecide(entry_id)
+        else:
+            entry = store.decide(entry_id, body.decision, body.reason)
+        return {"entry": entry_view(entry), "flow": flow(store)}
+
+    @app.get("/api/screening/export/{kind}")
+    async def export_screening(
+        kind: ScreeningExport, which: EntryFilter = "include"
+    ) -> PlainTextResponse:
+        store = screening_to_write()
+        if kind == "log":
+            body = "\n\n---\n\n".join(store.search_logs())
+            name = "screening-searches.md"
+        else:
+            records = merged_entries(store.entries(which))
+            body = to_ris(records) if kind == "ris" else to_csv(records)
+            name = f"screening-{which}.{kind}"
+        return PlainTextResponse(
+            body,
+            media_type=_DOWNLOADS[kind][1],
             headers={"Content-Disposition": f'attachment; filename="{name}"'},
         )
 

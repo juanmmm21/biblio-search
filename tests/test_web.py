@@ -79,6 +79,7 @@ def make_client(
     *,
     with_openalex: bool = True,
     decs: DecsSearch | None = None,
+    screening: Path | None = None,
 ) -> TestClient:
     ncbi = fake or FakeNcbi()
     openalex_backend = other or FakeOpenAlex()
@@ -99,7 +100,9 @@ def make_client(
     backends: dict[Database, BackendFactory] = (
         {Database.OPENALEX: open_openalex} if with_openalex else {}
     )
-    app = create_app(open_client, initial, backends, open_decs if decs is not None else None)
+    app = create_app(
+        open_client, initial, backends, open_decs if decs is not None else None, screening
+    )
     return TestClient(app, base_url=BASE_URL)
 
 
@@ -393,6 +396,104 @@ def test_only_the_latest_searches_are_kept() -> None:
     assert (first.status_code, last.status_code) == (404, 200)
 
 
+def _finished_search(test_client: TestClient) -> str:
+    response = test_client.post("/api/search", json={"question": example_data(), "max_records": 3})
+    name, done = sse_events(response.text)[-1]
+    assert name == "done"
+    search_id = done["search_id"]
+    assert isinstance(search_id, str)
+    return search_id
+
+
+def test_screening_starts_empty_without_creating_the_file(tmp_path: Path) -> None:
+    path = tmp_path / "screening.sqlite"
+    with make_client(screening=path) as test_client:
+        state = test_client.get("/api/screening").json()
+        decided = test_client.post("/api/screening/records/1", json={"decision": "include"})
+        export = test_client.get("/api/screening/export/ris")
+    assert state["file"] == str(path) and state["entries"] == []
+    assert state["flow"]["screened"] == 0 and state["flow"]["exclusion_reasons"] == []
+    assert decided.status_code == 409 and "add a search first" in decided.json()["error"]
+    assert export.status_code == 409
+    assert not path.exists()
+
+
+def test_a_search_is_screened_and_resumed(tmp_path: Path) -> None:
+    path = tmp_path / "screening.sqlite"
+    with make_client(screening=path) as test_client:
+        search_id = _finished_search(test_client)
+        added = test_client.post("/api/screening/searches", json={"search_id": search_id})
+        again = test_client.post("/api/screening/searches", json={"search_id": search_id})
+        pending = test_client.get("/api/screening").json()["entries"]
+        first, second, third = (entry["id"] for entry in pending[:3])
+        include = test_client.post(f"/api/screening/records/{first}", json={"decision": "include"})
+        test_client.post(
+            f"/api/screening/records/{second}",
+            json={"decision": "exclude", "reason": "not caregivers"},
+        )
+        test_client.post(f"/api/screening/records/{third}", json={"decision": "maybe"})
+        undo = test_client.post(f"/api/screening/records/{third}", json={"decision": None})
+        unknown = test_client.post("/api/screening/records/999", json={"decision": "include"})
+        too_long = test_client.post(
+            f"/api/screening/records/{first}", json={"decision": "exclude", "reason": "x" * 501}
+        )
+        bad = test_client.post(f"/api/screening/records/{first}", json={"decision": "perhaps"})
+
+    assert added.json()["added"] == {
+        "search_number": 1,
+        "identified": 6,
+        "new_records": 6,
+        "already_known": 0,
+    }
+    assert again.json()["added"]["already_known"] == 6
+    assert include.json()["entry"]["decision"] == "include"
+    assert include.json()["entry"]["sources"][0]["id_label"] in {"PMID", "OpenAlex"}
+    assert undo.json()["entry"]["decision"] is None
+    assert undo.json()["flow"]["pending"] == 4
+    assert unknown.status_code == 409 and "no record 999" in unknown.json()["error"]
+    assert (too_long.status_code, bad.status_code) == (422, 422)
+
+    # Otro servidor con el mismo fichero retoma el cribado donde quedó.
+    with make_client(screening=path) as test_client:
+        state = test_client.get("/api/screening", params={"which": "exclude"}).json()
+        everything = test_client.get("/api/screening", params={"which": "all"}).json()
+        ris = test_client.get("/api/screening/export/ris")
+        csv = test_client.get("/api/screening/export/csv", params={"which": "exclude"})
+        logs = test_client.get("/api/screening/export/log")
+        wrong = test_client.get("/api/screening", params={"which": "later"})
+    flow = state["flow"]
+    assert (flow["identified"], flow["duplicates"], flow["screened"]) == (12, 6, 6)
+    assert (flow["included"], flow["excluded"], flow["maybe"], flow["pending"]) == (1, 1, 0, 4)
+    assert flow["exclusion_reasons"] == [{"reason": "not caregivers", "count": 1}]
+    assert [entry["id"] for entry in state["entries"]] == [second]
+    assert state["entries"][0]["reason"] == "not caregivers"
+    assert len(everything["entries"]) == 6
+    assert ris.text.count("ER  - ") == 1
+    assert 'filename="screening-include.ris"' in ris.headers["content-disposition"]
+    assert csv.text.startswith("\ufefftitle,") and csv.text.count("\r\n") == 2
+    assert logs.text.count("# Search log") == 2
+    assert wrong.status_code == 422
+
+
+def test_screening_needs_a_kept_search_and_a_file(tmp_path: Path) -> None:
+    with make_client(screening=tmp_path / "s.sqlite") as test_client:
+        missing = test_client.post("/api/screening/searches", json={"search_id": "nope"})
+    with make_client() as test_client:
+        search_id = _finished_search(test_client)
+        off = test_client.post("/api/screening/searches", json={"search_id": search_id})
+    assert missing.status_code == 404
+    assert off.status_code == 409 and "without a screening file" in off.json()["error"]
+
+
+def test_a_foreign_file_is_reported_as_a_screening_error(tmp_path: Path) -> None:
+    path = tmp_path / "notes.sqlite"
+    path.write_text("not a database\n" * 50, encoding="utf-8")
+    with make_client(screening=path) as test_client:
+        response = test_client.get("/api/screening")
+    assert response.status_code == 409
+    assert "not a biblio-search screening file" in response.json()["error"]
+
+
 def test_openalex_errors_arrive_after_the_pubmed_results() -> None:
     broken = FakeOpenAlex(OpenAlexError("OpenAlex rejected the request (HTTP 400)"))
     with make_client(other=broken) as test_client:
@@ -458,7 +559,12 @@ def test_cli_ui_opens_the_question_file(monkeypatch: pytest.MonkeyPatch) -> None
     initial = first["initial_question"]
     assert isinstance(initial, dict)
     assert initial["format"] == "spc"
-    assert second == {"port": 0, "open_browser": True, "initial_question": None}
+    assert second == {
+        "port": 0,
+        "open_browser": True,
+        "initial_question": None,
+        "screening_path": Path("screening.sqlite"),
+    }
 
 
 def test_cli_ui_reports_a_busy_port(

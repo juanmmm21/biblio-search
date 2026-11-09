@@ -46,6 +46,7 @@ from biblio_search.openalex import OpenAlexClient, OpenAlexConfig
 from biblio_search.pipeline import SearchBackend, SearchReport, run_search
 from biblio_search.question_file import load_question, question_to_data
 from biblio_search.screening import (
+    DEFAULT_SCREENING_FILE,
     AddedSearch,
     EntryFilter,
     ScreeningError,
@@ -185,6 +186,13 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     ui.add_argument("question_file", type=Path, nargs="?", help="TOML question to open (optional)")
     ui.add_argument(
+        "--screening",
+        type=Path,
+        default=Path(DEFAULT_SCREENING_FILE),
+        help=f"screening file to keep decisions in (default: {DEFAULT_SCREENING_FILE} in the "
+        "current folder, created when the first search is added)",
+    )
+    ui.add_argument(
         "--port", type=_port, default=0, help="port on 127.0.0.1 (default: any free port)"
     )
     ui.add_argument(
@@ -216,6 +224,7 @@ def _ui(args: argparse.Namespace) -> int:
             port=args.port,
             open_browser=not args.no_browser,
             initial_question=initial,
+            screening_path=args.screening,
         )
     except OSError as exc:
         raise ValueError(f"cannot start the web interface: {exc.strerror or exc}") from exc

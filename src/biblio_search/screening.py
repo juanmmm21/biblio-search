@@ -26,6 +26,7 @@ from biblio_search.question_file import dump_question
 from biblio_search.search_log import SearchLog, render_log
 
 SCHEMA_VERSION = 1
+DEFAULT_SCREENING_FILE = "screening.sqlite"
 MAX_REASON_LENGTH = 500
 NO_REASON = "no reason given"
 

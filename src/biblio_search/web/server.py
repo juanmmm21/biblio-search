@@ -5,6 +5,7 @@ from __future__ import annotations
 import socket
 import webbrowser
 from collections.abc import Mapping
+from pathlib import Path
 
 import uvicorn
 
@@ -35,6 +36,7 @@ def serve(
     port: int = 0,
     open_browser: bool = True,
     initial_question: Mapping[str, object] | None = None,
+    screening_path: Path | None = None,
 ) -> None:
     """Run the interface until it is stopped with Ctrl+C."""
 
@@ -53,7 +55,11 @@ def serve(
 
     backends: dict[Database, BackendFactory] = {Database.OPENALEX: open_openalex}
     app = create_app(
-        open_client, initial_question, backends, open_decs if decs_config is not None else None
+        open_client,
+        initial_question,
+        backends,
+        open_decs if decs_config is not None else None,
+        screening_path,
     )
     sock = bind_local(port)
     try:

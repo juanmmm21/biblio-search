@@ -30,6 +30,7 @@ from biblio_search.models import (
     Vocabulary,
 )
 from biblio_search.question_file import question_to_data
+from biblio_search.screening import AddedSearch, FlowSummary, ScreeningEntry
 from biblio_search.search_log import SearchLog
 from biblio_search.selection import DatabaseSelection, select_databases
 from biblio_search.tuning import TuningReport
@@ -228,4 +229,56 @@ def merged_view(search_id: str, log: SearchLog) -> JsonDict:
         "duplicates": merged.duplicates,
         "unique": len(merged.records),
         "downloads": {kind: f"/api/searches/{search_id}/{kind}" for kind in ("log", "ris", "csv")},
+    }
+
+
+def flow_view(summary: FlowSummary) -> JsonDict:
+    """The counts of the screening flow diagram."""
+    return {
+        "searches": summary.searches,
+        "identified": summary.identified,
+        "duplicates": summary.duplicates,
+        "screened": summary.screened,
+        "pending": summary.pending,
+        "included": summary.included,
+        "excluded": summary.excluded,
+        "maybe": summary.maybe,
+        "exclusion_reasons": [
+            {"reason": reason, "count": count} for reason, count in summary.exclusion_reasons
+        ],
+    }
+
+
+def entry_view(entry: ScreeningEntry) -> JsonDict:
+    """A record to screen, with every database it was found in and its decision."""
+    record = entry.record
+    return {
+        "id": entry.entry_id,
+        "title": record.title,
+        "authors": list(record.authors),
+        "journal": record.journal,
+        "year": record.year,
+        "doi": record.doi,
+        "publication_types": list(record.publication_types),
+        "sources": [
+            {
+                "database": source.database.value,
+                "label": DATABASE_LABELS[source.database],
+                "id_label": RECORD_ID_LABELS.get(source.database, DATABASE_LABELS[source.database]),
+                "id": source.record_id,
+                "url": source.url,
+            }
+            for source in entry.sources
+        ],
+        "decision": entry.decision.value if entry.decision is not None else None,
+        "reason": entry.reason,
+    }
+
+
+def added_view(added: AddedSearch) -> JsonDict:
+    return {
+        "search_number": added.search_number,
+        "identified": added.identified,
+        "new_records": added.new_records,
+        "already_known": added.already_known,
     }
