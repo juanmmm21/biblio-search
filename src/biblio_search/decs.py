@@ -211,7 +211,8 @@ class DecsClient:
     async def get_json(self, endpoint: str, params: Mapping[str, str]) -> Mapping[str, object]:
         """Call ``endpoint`` with retries on rate limits, server errors and network errors.
 
-        DeCS answers 404 when nothing matches, which is an empty result and not an error.
+        The public API answers an empty ``objects`` list when nothing matches; the server code
+        documents a 404 for that too, so a 404 is also an empty result and not an error.
         """
         last_problem = ""
         for attempt in range(self._config.max_retries + 1):
