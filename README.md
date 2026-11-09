@@ -11,7 +11,8 @@ sensitivity and specificity you can tune on purpose instead of by trial and erro
 
 Everything happens in a local web page: write the question, watch the equation, the logic
 grid and the chosen databases update as you type, check the headings against MeSH and run the
-search with live progress. The same features are available from the command line.
+search with live progress, then screen the records it found, deciding on each one with its
+reason in a file you can come back to. The same features are available from the command line.
 
 ![Writing a question: the PubMed and OpenAlex equations and Del Pino's logic grid update as you type](docs/screenshots/strategy.png)
 
@@ -106,6 +107,11 @@ University of Jaén) in *"Cómo aprender (y enseñar) a realizar búsquedas en C
   it, the counts, the duplicates removed, and the question itself as TOML next to the exact
   command that runs it again. Records export to RIS (CRLF lines, as the format asks) and to
   CSV with a BOM for Excel and cells that cannot be read as formulas.
+- **Screening that survives a closed laptop.** Decisions live in a local SQLite file and are
+  written the moment they are made, so screening stops and resumes at any record. A second
+  search adds only the works the first one did not find (same DOI, PMID or database id), and
+  two records already kept are never fused, so no decision is ever lost. The counts of a
+  PRISMA-style flow diagram, exclusion reasons included, are read straight from the file.
 - **Records are database-neutral.** A search returns ids and a second call fetches their
   summaries, in the same order, for every database; each record keeps its own identifier
   (PMID or OpenAlex work id) and link, so the CLI and the page list them side by side.
@@ -156,12 +162,13 @@ biblio-search/
 │   ├── merge.py          # union of several databases without duplicates (DOI or PMID)
 │   ├── search_log.py     # reproducible Markdown log of a search
 │   ├── export.py         # merged records as RIS and CSV
+│   ├── screening.py      # SQLite screening project: decisions, reasons and flow counts
 │   ├── web/
-│   │   ├── app.py        # FastAPI app: preview, check, import/export, SSE search, tuning, downloads
+│   │   ├── app.py        # FastAPI app: preview, check, SSE search, tuning, downloads, screening
 │   │   ├── views.py      # JSON views of questions, selections, counts and records
 │   │   ├── server.py     # binds 127.0.0.1 and opens the browser
 │   │   └── static/       # the page: HTML, CSS and JavaScript, no build step
-│   └── __main__.py       # command line interface (ui, build, check, decs, databases, search, tune)
+│   └── __main__.py       # command line interface (ui, build, check, decs, databases, search, tune, screening)
 ├── examples/
 │   ├── caregiver-burden.toml       # worked example from Del Pino (2017)
 │   └── peer-tutoring-reading.toml  # education question with free concepts and ERIC terms
@@ -207,11 +214,18 @@ The page opens in your browser on a free port of `127.0.0.1` (`--port` to fix it
   PubMed or OpenAlex and to the DOI. When it finishes, the records of every database are
   merged without duplicates and you can download the search log, and the records as RIS
   or CSV.
+- **Screen** the records: *Add to screening* sends a finished search to the screening panel,
+  where each record gets *Include*, *Maybe* or *Exclude* with an optional reason (reasons you
+  already used are offered as you type). The flow diagram on top counts records identified,
+  duplicates removed, screened, pending, maybe, excluded by reason and included, and the
+  included records download as RIS or CSV.
 - **Import and export** the question as a TOML file, the same format the CLI reads.
 
 ![Live search in PubMed and OpenAlex: each step as it happens, the merged records with the log, RIS and CSV downloads, the record counts, how each database read its equation and the records to screen](docs/screenshots/search.png)
 
 ![Tuning: the count of each condition on its own and without it, and of each sensitivity or specificity lever, in PubMed and OpenAlex](docs/screenshots/tuning.png)
+
+![Screening: the flow diagram with identified, duplicate, pending, maybe, excluded (by reason) and included records, and each record with its decision and reason](docs/screenshots/screening.png)
 
 ### Question files and the command line
 
@@ -489,6 +503,51 @@ Only the records retrieved are exported (`--max`, up to 10,000 per database), so
 the full count when you want every record; the log shows both numbers side by side. The web
 interface offers the same three files once a search finishes.
 
+### Screening the records
+
+Screening is the step after the search: reading each title and abstract and deciding whether
+the work answers the question. biblio-search keeps that work in a SQLite file, one per
+review, so it can be stopped and resumed at any time and its counts feed the flow diagram of
+the methods section.
+
+```bash
+biblio-search search examples/caregiver-burden.toml --max 500 --screening review.sqlite
+```
+
+```console
+Screening: search 1 added to review.sqlite, 975 new records, 0 already there
+```
+
+Running another search (a tuned equation, another database) with the same file adds only the
+works that are not there yet; a work is recognised by its DOI, its PMID or its id in a
+database. In the web interface, `biblio-search ui` keeps decisions in `screening.sqlite` in
+the current folder (`--screening` to pick another file), created when the first search is
+added.
+
+`screening` prints the flow diagram counts of a file and exports its records:
+
+```bash
+biblio-search screening review.sqlite --ris included.ris --log searches.md
+```
+
+```console
+Searches added: 2
+Records identified: 1,480
+Duplicates removed: 505
+Records screened: 975
+  Pending: 610
+  Excluded: 301
+    wrong population: 187
+    not a primary study: 114
+  Maybe (full text needed): 22
+  Included: 42
+RIS (include) written to included.ris
+Search logs written to searches.md
+```
+
+`--which` picks the records to export (`include` by default, or `maybe`, `exclude`,
+`pending`, `all`), and `--log` writes the log of every search added, oldest first.
+
 ### Tuning sensitivity and specificity
 
 There is no right number of records, but Del Pino gives two warnings: fewer than 100
@@ -654,6 +713,8 @@ The test suite never touches the network: NCBI responses are recorded under
   character or no longer valid; DeCS licences last three years.
 - **`NCBI ... failed after 4 attempts: HTTP 429`**: too many requests from your IP, often
   several tools sharing one connection. Wait a minute, or set `NCBI_API_KEY`.
+- **`... is not a biblio-search screening file`**: `--screening` points to a file that some
+  other program wrote. biblio-search never overwrites it; choose a new file name.
 - **`Warning: (` or a translation shorter than the equation**: PubMed dropped part of the
   query, usually an unbalanced parenthesis in a hand-edited equation.
 
