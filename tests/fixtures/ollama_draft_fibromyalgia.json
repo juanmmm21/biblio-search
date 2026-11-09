@@ -1,0 +1,17 @@
+{
+  "model": "qwen3:8b",
+  "created_at": "2026-11-09T18:42:13.551511094Z",
+  "message": {
+    "role": "assistant",
+    "content": "{\n  \"english\": \"Does water exercise improve pain in fibromyalgia compared to land exercise?\",\n  \"population\": {\n    \"description\": \"People with fibromyalgia\",\n    \"conditions\": [\n      {\n        \"label\": \"fibromyalgia\",\n        \"mesh\": [\"Fibromyalgia\"],\n        \"free\": [\"fibromyalgia\", \"fibro*\"]\n      }\n    ]\n  },\n  \"intervention\": {\n    \"description\": \"Water exercise\",\n    \"conditions\": [\n      {\n        \"label\": \"water exercise\",\n        \"mesh\": [\"Exercise\"],\n        \"free\": [\"water exercis*\", \"aquatic exercis*\", \"water therapy*\"]\n      }\n    ]\n  },\n  \"comparison\": {\n    \"description\": \"Land exercise\",\n    \"conditions\": [\n      {\n        \"label\": \"land exercise\",\n        \"mesh\": [\"Exercise\"],\n        \"free\": [\"land exercis*\", \"terrestrial exercis*\", \"exercise on land*\"]\n      }\n    ]\n  },\n  \"outcome\": {\n    \"description\": \"Pain reduction\",\n    \"conditions\": [\n      {\n        \"label\": \"pain improvement\",\n        \"mesh\": [\"Pain\"],\n        \"free\": [\"pain reduc*\", \"pain improv*\", \"pain relief*\"]\n      }\n    ]\n  }\n}"
+  },
+  "done": true,
+  "done_reason": "stop",
+  "total_duration": 4274607590,
+  "load_duration": 838487,
+  "prompt_eval_count": 473,
+  "prompt_eval_cached_count": 472,
+  "prompt_eval_duration": 26494000,
+  "eval_count": 275,
+  "eval_duration": 4205813000
+}
