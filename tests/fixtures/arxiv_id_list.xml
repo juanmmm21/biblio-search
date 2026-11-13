@@ -1,0 +1,83 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<feed xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:arxiv="http://arxiv.org/schemas/atom" xmlns="http://www.w3.org/2005/Atom">
+  <id>https://arxiv.org/api/K5AIME5H9XJaEnEusloXR8b2iuE</id>
+  <title>arXiv Query: search_query=&amp;id_list=1706.03762,hep-th/9711200,2007.05129&amp;start=0&amp;max_results=3</title>
+  <updated>2026-11-13T09:57:19Z</updated>
+  <link href="https://arxiv.org/api/query?search_query=&amp;start=0&amp;max_results=3&amp;id_list=1706.03762,hep-th/9711200,2007.05129" type="application/atom+xml"/>
+  <opensearch:itemsPerPage>3</opensearch:itemsPerPage>
+  <opensearch:totalResults>3</opensearch:totalResults>
+  <opensearch:startIndex>0</opensearch:startIndex>
+  <entry>
+    <id>http://arxiv.org/abs/2007.05129v3</id>
+    <title>Senior Living Communities: Made Safer by AI</title>
+    <updated>2020-07-17T03:00:45Z</updated>
+    <link href="https://arxiv.org/abs/2007.05129v3" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2007.05129v3" rel="related" type="application/pdf" title="pdf"/>
+    <summary>There is a historically unprecedented shift in demographics towards seniors, which will result in significant housing development over the coming decade. This is an enormous opportunity for real-estate operators to innovate and address the demand in this growing market. However, investments in this area are fraught with risk. Seniors often have more health issues, and Covid-19 has exposed just how vulnerable they are -- especially those living in close proximity. Conventionally, most services for seniors are "high-touch", requiring close physical contact with trained caregivers. Not only are trained caregivers short in supply, but the pandemic has made it evident that conventional high-touch approaches to senior care are high-cost and greater risk. There are not enough caregivers to meet the needs of this emerging demographic, and even fewer who want to undertake the additional training and risk of working in a senior facility, especially given the current pandemic. In this article, we rethink the design of senior living facilities to mitigate the risks and costs using automation. With AI-enabled pervasive automation, we claim there is an opportunity, if not an urgency, to go from high-touch to almost "no touch" while dramatically reducing risk and cost. Although our vision goes beyond the current reality, we cite measurements from Caspar AI-enabled senior properties that show the potential benefit of this approach.</summary>
+    <category term="cs.CY" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2020-07-10T01:13:54Z</published>
+    <arxiv:comment>22 pages</arxiv:comment>
+    <arxiv:primary_category term="cs.CY"/>
+    <author>
+      <name>Ashutosh Saxena</name>
+    </author>
+    <author>
+      <name>David R Cheriton</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/hep-th/9711200v3</id>
+    <title>The Large N Limit of Superconformal Field Theories and Supergravity</title>
+    <updated>1998-01-22T15:42:41Z</updated>
+    <link href="https://arxiv.org/abs/hep-th/9711200v3" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/hep-th/9711200v3" rel="related" type="application/pdf" title="pdf"/>
+    <summary>  We show that the large $N$ limit of certain conformal field theories in various dimensions include in their Hilbert space a sector describing supergravity on the product of Anti-deSitter spacetimes, spheres and other compact manifolds. This is shown by taking some branes in the full M/string theory and then taking a low energy limit where the field theory on the brane decouples from the bulk. We observe that, in this limit, we can still trust the near horizon geometry for large $N$. The enhanced supersymmetries of the near horizon geometry correspond to the extra supersymmetry generators present in the superconformal group (as opposed to just the super-Poincare group). The 't Hooft limit of 4-d ${\cal N} =4$ super-Yang-Mills at the conformal point is shown to contain strings: they are IIB strings. We conjecture that compactifications of M/string theory on various Anti-deSitter spacetimes are dual to various conformal field theories. This leads to a new proposal for a definition of M-theory which could be extended to include five non-compact dimensions.</summary>
+    <category term="hep-th" scheme="http://arxiv.org/schemas/atom"/>
+    <published>1997-11-27T23:53:13Z</published>
+    <arxiv:comment>20 pages, harvmac, v2: section on AdS_2 corrected, references added, v3: More references and a sign in eqns 2.8 and 2.9 corrected</arxiv:comment>
+    <arxiv:primary_category term="hep-th"/>
+    <arxiv:journal_ref>Adv.Theor.Math.Phys.2:231-252,1998</arxiv:journal_ref>
+    <author>
+      <name>Juan M. Maldacena</name>
+    </author>
+    <arxiv:doi>10.1023/A:1026654312961</arxiv:doi>
+    <link rel="related" href="https://doi.org/10.1023/A:1026654312961" title="doi"/>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/1706.03762v7</id>
+    <title>Attention Is All You Need</title>
+    <updated>2023-08-02T00:41:18Z</updated>
+    <link href="https://arxiv.org/abs/1706.03762v7" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/1706.03762v7" rel="related" type="application/pdf" title="pdf"/>
+    <summary>The dominant sequence transduction models are based on complex recurrent or convolutional neural networks in an encoder-decoder configuration. The best performing models also connect the encoder and decoder through an attention mechanism. We propose a new simple network architecture, the Transformer, based solely on attention mechanisms, dispensing with recurrence and convolutions entirely. Experiments on two machine translation tasks show these models to be superior in quality while being more parallelizable and requiring significantly less time to train. Our model achieves 28.4 BLEU on the WMT 2014 English-to-German translation task, improving over the existing best results, including ensembles by over 2 BLEU. On the WMT 2014 English-to-French translation task, our model establishes a new single-model state-of-the-art BLEU score of 41.8 after training for 3.5 days on eight GPUs, a small fraction of the training costs of the best models from the literature. We show that the Transformer generalizes well to other tasks by applying it successfully to English constituency parsing both with large and limited training data.</summary>
+    <category term="cs.CL" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2017-06-12T17:57:34Z</published>
+    <arxiv:comment>15 pages, 5 figures</arxiv:comment>
+    <arxiv:primary_category term="cs.CL"/>
+    <author>
+      <name>Ashish Vaswani</name>
+    </author>
+    <author>
+      <name>Noam Shazeer</name>
+    </author>
+    <author>
+      <name>Niki Parmar</name>
+    </author>
+    <author>
+      <name>Jakob Uszkoreit</name>
+    </author>
+    <author>
+      <name>Llion Jones</name>
+    </author>
+    <author>
+      <name>Aidan N. Gomez</name>
+    </author>
+    <author>
+      <name>Lukasz Kaiser</name>
+    </author>
+    <author>
+      <name>Illia Polosukhin</name>
+    </author>
+  </entry>
+</feed>

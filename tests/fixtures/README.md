@@ -42,3 +42,12 @@ mejora el dolor en la fibromialgia comparado con el ejercicio en tierra?*:
 - `ollama_classify_fibromyalgia.json`: the classification (health, PICO).
 - `ollama_draft_fibromyalgia.json`: the PICO decomposition with its schema.
 - `ollama_error_model_not_found.json`: the HTTP 404 body for a model that is not pulled.
+
+arXiv API (`export.arxiv.org/api/query`, Atom), recorded on 2026-11-13:
+
+- `arxiv_search_qec.xml`: the arXiv equation of `examples/neural-decoders-qec.toml`,
+  `start=0`, `max_results=3` (115 results; the third one carries a journal reference and DOI).
+- `arxiv_search_empty.xml`: `ti:qwzxvplorkt OR abs:qwzxvplorkt`, a search with no results.
+- `arxiv_error_syntax.xml`: the HTTP 400 error feed for `(ti:qubit` (unbalanced parenthesis).
+- `arxiv_id_list.xml`: `id_list=1706.03762,hep-th/9711200,2007.05129`, which arXiv answered
+  in a different order from the one asked for.

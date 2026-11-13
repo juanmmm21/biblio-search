@@ -1,0 +1,140 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<feed xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:arxiv="http://arxiv.org/schemas/atom" xmlns="http://www.w3.org/2005/Atom">
+  <id>https://arxiv.org/api/SaO8Q2cOTpuwkjb+zkRRtXxvv6I</id>
+  <title>arXiv Query: search_query=(ti:"neural network" OR abs:"neural network" OR ti:"deep learning" OR abs:"deep learning" OR ti:"machine learning" OR abs:"machine learning" OR ti:"neural decoder" OR abs:"neural decoder") AND (ti:"quantum error correct" OR abs:"quantum error correct" OR ti:"surface code" OR abs:"surface code" OR ti:"stabilizer code" OR abs:"stabilizer code") AND (ti:decod* OR abs:decod*) AND (cat:quant-ph OR cat:cs.LG)&amp;id_list=&amp;start=0&amp;max_results=3</title>
+  <updated>2026-11-13T09:53:43Z</updated>
+  <link href="https://arxiv.org/api/query?search_query=(ti:%22neural+network%22+OR+(abs:%22neural+network%22+OR+(ti:%22deep+learning%22+OR+(abs:%22deep+learning%22+OR+(ti:%22machine+learning%22+OR+(abs:%22machine+learning%22+OR+(ti:%22neural+decoder%22+OR+abs:%22neural+decoder%22)))))))+AND+((ti:%22quantum+error+correct%22+OR+(abs:%22quantum+error+correct%22+OR+(ti:%22surface+code%22+OR+(abs:%22surface+code%22+OR+(ti:%22stabilizer+code%22+OR+abs:%22stabilizer+code%22)))))+AND+((ti:decod*+OR+abs:decod*)+AND+(cat:quant-ph+OR+cat:cs.LG)))&amp;start=0&amp;max_results=3&amp;id_list=" type="application/atom+xml"/>
+  <opensearch:itemsPerPage>3</opensearch:itemsPerPage>
+  <opensearch:totalResults>115</opensearch:totalResults>
+  <opensearch:startIndex>0</opensearch:startIndex>
+  <entry>
+    <id>http://arxiv.org/abs/2304.07362v1</id>
+    <title>The END: An Equivariant Neural Decoder for Quantum Error Correction</title>
+    <updated>2023-04-14T19:46:39Z</updated>
+    <link href="https://arxiv.org/abs/2304.07362v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2304.07362v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Quantum error correction is a critical component for scaling up quantum computing. Given a quantum code, an optimal decoder maps the measured code violations to the most likely error that occurred, but its cost scales exponentially with the system size. Neural network decoders are an appealing solution since they can learn from data an efficient approximation to such a mapping and can automatically adapt to the noise distribution. In this work, we introduce a data efficient neural decoder that exploits the symmetries of the problem. We characterize the symmetries of the optimal decoder for the toric code and propose a novel equivariant architecture that achieves state of the art accuracy compared to previous neural decoders.</summary>
+    <category term="quant-ph" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2023-04-14T19:46:39Z</published>
+    <arxiv:primary_category term="quant-ph"/>
+    <author>
+      <name>Evgenii Egorov</name>
+    </author>
+    <author>
+      <name>Roberto Bondesan</name>
+    </author>
+    <author>
+      <name>Max Welling</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2307.09463v2</id>
+    <title>A Cryogenic Memristive Neural Decoder for Fault-tolerant Quantum Error Correction</title>
+    <updated>2024-10-30T20:23:50Z</updated>
+    <link href="https://arxiv.org/abs/2307.09463v2" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2307.09463v2" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Neural decoders for quantum error correction (QEC) rely on neural networks to classify syndromes extracted from error correction codes and find appropriate recovery operators to protect logical information against errors. Its ability to adapt to hardware noise and long-term drifts make neural decoders a promising candidate for inclusion in a fault-tolerant quantum architecture. However, given their limited scalability, it is prudent that small-scale (local) neural decoders are treated as first stages of multi-stage decoding schemes for fault-tolerant quantum computers with millions of qubits. In this case, minimizing the decoding time to match the stabilization measurements frequency and a tight co-integration with the QPUs is highly desired. Cryogenic realizations of neural decoders can not only improve the performance of higher stage decoders, but they can minimize communication delays, and alleviate wiring bottlenecks. In this work, we design and analyze a neural decoder based on an in-memory computation (IMC) architecture, where crossbar arrays of resistive memory devices are employed to both store the synaptic weights of the neural decoder and perform analog matrix-vector multiplications. In simulations supported by experimental measurements, we investigate the impact of TiOx-based memristive devices' non-idealities on decoding fidelity. We develop hardware-aware re-training methods to mitigate the fidelity loss, restoring the ideal decoder's pseudo-threshold for the distance-3 surface code. This work provides a pathway to scalable, fast, and low-power cryogenic IMC hardware for integrated fault-tolerant QEC.</summary>
+    <category term="quant-ph" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.ET" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2023-07-18T17:46:33Z</published>
+    <arxiv:primary_category term="quant-ph"/>
+    <author>
+      <name>Victor Yon</name>
+    </author>
+    <author>
+      <name>Frédéric Marcotte</name>
+    </author>
+    <author>
+      <name>Pierre-Antoine Mouny</name>
+    </author>
+    <author>
+      <name>Gebremedhin A. Dagnew</name>
+    </author>
+    <author>
+      <name>Bohdan Kulchytskyy</name>
+    </author>
+    <author>
+      <name>Sophie Rochette</name>
+    </author>
+    <author>
+      <name>Yann Beilliard</name>
+    </author>
+    <author>
+      <name>Dominique Drouin</name>
+    </author>
+    <author>
+      <name>Pooya Ronagh</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2310.05900v1</id>
+    <title>Learning to Decode the Surface Code with a Recurrent, Transformer-Based Neural Network</title>
+    <updated>2023-10-09T17:41:37Z</updated>
+    <link href="https://arxiv.org/abs/2310.05900v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2310.05900v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Quantum error-correction is a prerequisite for reliable quantum computation. Towards this goal, we present a recurrent, transformer-based neural network which learns to decode the surface code, the leading quantum error-correction code. Our decoder outperforms state-of-the-art algorithmic decoders on real-world data from Google's Sycamore quantum processor for distance 3 and 5 surface codes. On distances up to 11, the decoder maintains its advantage on simulated data with realistic noise including cross-talk, leakage, and analog readout signals, and sustains its accuracy far beyond the 25 cycles it was trained on. Our work illustrates the ability of machine learning to go beyond human-designed algorithms by learning from data directly, highlighting machine learning as a strong contender for decoding in quantum computers.</summary>
+    <category term="quant-ph" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2023-10-09T17:41:37Z</published>
+    <arxiv:primary_category term="quant-ph"/>
+    <arxiv:journal_ref>Nature 635, 834-840 (2024)</arxiv:journal_ref>
+    <author>
+      <name>Johannes Bausch</name>
+    </author>
+    <author>
+      <name>Andrew W Senior</name>
+    </author>
+    <author>
+      <name>Francisco J H Heras</name>
+    </author>
+    <author>
+      <name>Thomas Edlich</name>
+    </author>
+    <author>
+      <name>Alex Davies</name>
+    </author>
+    <author>
+      <name>Michael Newman</name>
+    </author>
+    <author>
+      <name>Cody Jones</name>
+    </author>
+    <author>
+      <name>Kevin Satzinger</name>
+    </author>
+    <author>
+      <name>Murphy Yuezhen Niu</name>
+    </author>
+    <author>
+      <name>Sam Blackwell</name>
+    </author>
+    <author>
+      <name>George Holland</name>
+    </author>
+    <author>
+      <name>Dvir Kafri</name>
+    </author>
+    <author>
+      <name>Juan Atalaya</name>
+    </author>
+    <author>
+      <name>Craig Gidney</name>
+    </author>
+    <author>
+      <name>Demis Hassabis</name>
+    </author>
+    <author>
+      <name>Sergio Boixo</name>
+    </author>
+    <author>
+      <name>Hartmut Neven</name>
+    </author>
+    <author>
+      <name>Pushmeet Kohli</name>
+    </author>
+    <arxiv:doi>10.1038/s41586-024-08148-8</arxiv:doi>
+    <link rel="related" href="https://doi.org/10.1038/s41586-024-08148-8" title="doi"/>
+  </entry>
+</feed>
