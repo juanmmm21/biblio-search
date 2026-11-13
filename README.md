@@ -1,7 +1,7 @@
 # biblio-search
 
 Turn a research question from any discipline into a rigorous, reproducible search strategy,
-and run it in PubMed and OpenAlex.
+and run it in PubMed, arXiv and OpenAlex.
 
 biblio-search models the bibliographic search method taught to health-science students, and
 extends it to any field:
@@ -58,7 +58,8 @@ University of Jaén) in *"Cómo aprender (y enseñar) a realizar búsquedas en C
    relevant, the search is probably too sensitive. biblio-search counts every condition and
    every lever so you tune with numbers.
 8. **Run it and read what the database understood.** biblio-search sends each database its
-   own equation (PubMed through NCBI E-utilities, OpenAlex through its works API) and shows
+   own equation (PubMed through NCBI E-utilities, arXiv through its Atom API, OpenAlex through
+   its works API) and shows
    the record count, the database's own reading of the query, any term it did not recognise
    and the first records to screen.
 
@@ -104,8 +105,16 @@ University of Jaén) in *"Cómo aprender (y enseñar) a realizar búsquedas en C
   inside quotes, as zero-distance proximity (`"family caregiv*"~0`). OpenAlex indexes no
   thesaurus, so headings become free text, and each database explains in a note anything it
   had to search differently from how the question was written.
+- **arXiv searched field by field.** arXiv has no title-and-abstract field, so every term is
+  asked as `ti:` OR `abs:`, exclusions use its `ANDNOT`, and optional `arxiv_categories`
+  (`quant-ph`, `cs.LG`, `math.*`) narrow arXiv alone. Its engine stems every word and refuses
+  wildcards inside phrases, so a truncated phrase is sent as the phrase and the note says
+  so; anything that is not a plain word is quoted, because `self-care` unquoted matches twenty
+  times more records than `"self-care"`.
 - **One record per work, whatever the database.** Records from every database are merged
-  by DOI or PMID (OpenAlex knows the PMID of the works PubMed indexes), never by title,
+  by DOI or PMID (OpenAlex knows the PMID of the works PubMed indexes, and an arXiv preprint
+  without a journal DOI gets the `10.48550/arXiv.<id>` DOI arXiv registers for it, which is
+  the one OpenAlex uses), never by title,
   because two different works can share one and a wrong merge would hide a record from the
   screening. A record that shares its DOI with one group and its PMID with another joins both.
 - **A search that can be repeated.** Every run can be saved as a Markdown log with the date,
@@ -120,7 +129,7 @@ University of Jaén) in *"Cómo aprender (y enseñar) a realizar búsquedas en C
   PRISMA-style flow diagram, exclusion reasons included, are read straight from the file.
 - **Records are database-neutral.** A search returns ids and a second call fetches their
   summaries, in the same order, for every database; each record keeps its own identifier
-  (PMID or OpenAlex work id) and link, so the CLI and the page list them side by side.
+  (PMID, arXiv id or OpenAlex work id) and link, so the CLI and the page list them side by side.
 - **A polite async client.** The E-utilities client is built on `httpx.AsyncClient`, spaces
   requests to NCBI's quota (3 per second, 10 with an API key), always identifies the tool,
   retries 429/5xx and network errors with backoff (honouring `Retry-After`, including NCBI's
@@ -128,7 +137,11 @@ University of Jaén) in *"Cómo aprender (y enseñar) a realizar búsquedas en C
   works the same way within OpenAlex's limits (1 request per second for long boolean queries
   without a key, 5 with one), sends the optional key in a header rather than the URL, and
   stops early with a clear message when the daily budget is spent instead of waiting hours.
-- **Offline, deterministic tests.** Real NCBI and OpenAlex responses are recorded as fixtures and an
+  The arXiv client keeps to its terms of use (one request every three seconds over a single
+  connection), asks for one record when only the count is needed (arXiv answers
+  `max_results=0` with a server error), and keeps the records each search page already
+  carries, so listing them costs no second request.
+- **Offline, deterministic tests.** Real NCBI, arXiv and OpenAlex responses are recorded as fixtures and an
   autouse guard makes any test that opens a socket fail.
 - **Dialects behind a protocol.** Query generation sits behind a small `QueryDialect`
   interface, so other databases can get their own syntax without touching the model.
@@ -154,10 +167,12 @@ biblio-search/
 │   ├── protocols.py      # QueryDialect and Thesaurus interfaces
 │   ├── pubmed_query.py   # PubMed field tags, quoting rules and equation assembly
 │   ├── openalex_query.py # OpenAlex equation: unstemmed title/abstract search, proximity
+│   ├── arxiv_query.py    # arXiv equation: ti/abs fields, categories, ANDNOT
 │   ├── question_file.py  # TOML question files -> validated domain objects
 │   ├── ratelimit.py      # async requests-per-second limiter
 │   ├── eutils.py         # NCBI E-utilities client (esearch, esummary) and response parsing
 │   ├── openalex.py       # OpenAlex works client (search, summaries) and response parsing
+│   ├── arxiv.py          # arXiv API client (Atom feeds, 3 s pace) and response parsing
 │   ├── mesh.py           # MeSH lookups through E-utilities (db=mesh)
 │   ├── decs.py           # DeCS client and the Spanish-to-MeSH bridge (optional, licensed)
 │   ├── check.py          # heading checks, synonym suggestions, unknown terms to free text
@@ -178,8 +193,9 @@ biblio-search/
 │   └── __main__.py       # command line interface (ui, draft, build, check, decs, databases, search, tune, screening)
 ├── examples/
 │   ├── caregiver-burden.toml       # worked example from Del Pino (2017)
-│   └── peer-tutoring-reading.toml  # education question with free concepts and ERIC terms
-└── tests/                # unit tests and recorded NCBI, OpenAlex, DeCS and Ollama fixtures, no network access
+│   ├── peer-tutoring-reading.toml  # education question with free concepts and ERIC terms
+│   └── neural-decoders-qec.toml    # physics question for arXiv, narrowed to two categories
+└── tests/                # unit tests and recorded NCBI, arXiv, OpenAlex, DeCS and Ollama fixtures, no network access
 ```
 
 ## Installation
@@ -221,7 +237,7 @@ The page opens in your browser on a free port of `127.0.0.1` (`--port` to fix it
   button that loads the variant you prefer into the form.
 - **Search** every chosen database and follow each step live. Each database gets its own
   block: the record count, how it read its equation and the first records, with links to
-  PubMed or OpenAlex and to the DOI. When it finishes, the records of every database are
+  PubMed, arXiv or OpenAlex and to the DOI. When it finishes, the records of every database are
   merged without duplicates and you can download the search log, and the records as RIS
   or CSV.
 - **Screen** the records: *Add to screening* sends a finished search to the screening panel,
@@ -234,6 +250,8 @@ The page opens in your browser on a free port of `127.0.0.1` (`--port` to fix it
 ![Drafting from a Spanish sentence: the local model fills in a PICO question in English, the comparison is described but not searched, and every MeSH heading it proposed is confirmed](docs/screenshots/draft.png)
 
 ![Live search in PubMed and OpenAlex: each step as it happens, the merged records with the log, RIS and CSV downloads, the record counts, how each database read its equation and the records to screen](docs/screenshots/search.png)
+
+![A physics question searched in arXiv and OpenAlex: the arXiv equation with its fields and categories, 115 records and the preprints with their arXiv DOIs](docs/screenshots/arxiv.png)
 
 ![Tuning: the count of each condition on its own and without it, and of each sensitivity or specificity lever, in PubMed and OpenAlex](docs/screenshots/tuning.png)
 
@@ -456,7 +474,7 @@ The rules are deterministic, so the same question always gets the same databases
   `discipline` is `health`.
 - **ERIC** when the `discipline` is `education` or the question uses ERIC descriptors.
 - **arXiv** when the `discipline` is `physics`, `mathematics`, `computer_science` or
-  `economics`.
+  `economics`, or the question lists `arxiv_categories`.
 - **OpenAlex** always, as the general database that catches what falls outside the others.
 
 To choose by hand, list them in the file (`databases = ["pubmed", "openalex"]`) or pass
@@ -481,6 +499,30 @@ truncated phrases written as proximity:
 $ biblio-search build examples/peer-tutoring-reading.toml --dialect openalex
 ("peer teaching" OR "peer tutor*"~0 OR "peer assisted learning" OR "cross age tutor*"~0) AND ("reading comprehension" OR "reading skill*"~0) AND ("primary school*"~0 OR "elementary school*"~0)
 biblio-search: OpenAlex does not index these headings, so they are searched as free text: Peer Teaching (ERIC), Reading Comprehension (ERIC), Elementary School Students (ERIC)
+```
+
+Physics, mathematics, computer science and quantitative economics go to arXiv. Its
+categories are a filter of arXiv alone, written once in the file (or in the *arXiv
+categories* field of the page):
+
+```toml
+discipline = "physics"
+arxiv_categories = ["quant-ph", "cs.LG"]   # cs.* takes a whole archive
+```
+
+```console
+$ biblio-search databases examples/neural-decoders-qec.toml
+Databases (chosen automatically):
+  arXiv
+    - the discipline is physics
+    - the question narrows arXiv to some categories
+  OpenAlex
+    - general multidisciplinary database, so nothing outside the specialised ones is missed
+
+arXiv equation: (ti:"neural network" OR abs:"neural network" OR ti:"deep learning" OR abs:"deep learning" OR ti:"machine learning" OR abs:"machine learning" OR ti:"neural decoder" OR abs:"neural decoder") AND (ti:"quantum error correct" OR abs:"quantum error correct" OR ti:"surface code" OR abs:"surface code" OR ti:"stabilizer code" OR abs:"stabilizer code") AND (ti:decod* OR abs:decod*) AND (cat:quant-ph OR cat:cs.LG)
+Note: arXiv takes no wildcard inside a phrase, so these are searched as the phrase (arXiv already finds other endings of each word): neural network*, neural decoder*, quantum error correct*, surface code*, stabilizer code*
+
+OpenAlex equation: ("neural network*"~0 OR "deep learning" OR "machine learning" OR "neural decoder*"~0) AND ("quantum error correct*"~0 OR "surface code*"~0 OR "stabilizer code*"~0) AND (decod*)
 ```
 
 ### Running the search
@@ -518,7 +560,23 @@ Counts change as the databases grow. The translation lines are worth reading: he
 expanded `Depression[mj]` to also cover *depressive disorder*, and OpenAlex confirms it
 searched title and abstract with truncation intact. Unknown terms are listed as
 `Not found:` and anything PubMed ignored as `Warning:`. Use `--database pubmed` or
-`--database openalex` to search only one of them.
+`--database openalex` to search only one of them, and `--database arxiv` to add arXiv:
+
+```console
+$ biblio-search search examples/neural-decoders-qec.toml --max 3 --database arxiv
+Searching in: arXiv
+
+arXiv
+Equation: (ti:"neural network" OR abs:"neural network" OR ti:"deep learning" OR abs:"deep learning" OR ti:"machine learning" OR abs:"machine learning" OR ti:"neural decoder" OR abs:"neural decoder") AND (ti:"quantum error correct" OR abs:"quantum error correct" OR ti:"surface code" OR abs:"surface code" OR ti:"stabilizer code" OR abs:"stabilizer code") AND (ti:decod* OR abs:decod*) AND (cat:quant-ph OR cat:cs.LG)
+arXiv understood: (ti:"neural network" OR abs:"neural network" OR ti:"deep learning" OR abs:"deep learning" OR ti:"machine learning" OR abs:"machine learning" OR ti:"neural decoder" OR abs:"neural decoder") AND (ti:"quantum error correct" OR abs:"quantum error correct" OR ti:"surface code" OR abs:"surface code" OR ti:"stabilizer code" OR abs:"stabilizer code") AND (ti:decod* OR abs:decod*) AND (cat:quant-ph OR cat:cs.LG)
+Results: 115
+
+  1. arXiv 2304.07362 (2023) The END: An Equivariant Neural Decoder for Quantum Error Correction [preprint]
+  2. arXiv 2307.09463 (2023) A Cryogenic Memristive Neural Decoder for Fault-tolerant Quantum Error Correction [preprint]
+  3. arXiv 2310.05900 (2023) Learning to Decode the Surface Code with a Recurrent, Transformer-Based Neural Network | Nature 635, 834-840 (2024) [article]
+
+Merged: 3 records retrieved, 0 duplicates removed (same DOI or PMID), 3 unique
+```
 
 NCBI asks every tool to identify itself. biblio-search always sends `tool=biblio-search`;
 set a contact email and, optionally, a free
@@ -538,6 +596,11 @@ gives you your own, ten times larger:
 ```bash
 export OPENALEX_API_KEY="..."         # optional, read from the environment only
 ```
+
+arXiv needs neither key nor email. Its terms of use allow one request every three seconds,
+so a search waits its turn; if arXiv still answers with HTTP 429, it is limiting your address
+for a few minutes and the error says so. Thank you to arXiv for use of its open access
+interoperability.
 
 ### Documenting and exporting the search
 
