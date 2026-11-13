@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "biblio-search"
-version = "0.12.0"
+version = "0.13.0"
 description = "Turn research questions from any discipline into rigorous, reproducible search strategies for PubMed, arXiv and OpenAlex."
 readme = "README.md"
 license = "MIT"
