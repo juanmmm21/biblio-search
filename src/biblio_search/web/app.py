@@ -29,8 +29,15 @@ from biblio_search.assistant import (
     draft_question,
 )
 from biblio_search.catalog import DATABASE_LABELS, DIALECTS
-from biblio_search.check import apply_check, check_question
+from biblio_search.check import apply_checks, check_all, vocabularies_to_check
 from biblio_search.decs import DecsMeshThesaurus, DecsSearch
+from biblio_search.eric import EricClient
+from biblio_search.eric_thesaurus import (
+    EricApiThesaurus,
+    EricFileThesaurus,
+    EricThesaurusFile,
+    describe_source,
+)
 from biblio_search.eutils import MAX_RETMAX
 from biblio_search.export import to_csv, to_ris
 from biblio_search.mesh import JsonBackend, MeshThesaurus
@@ -43,6 +50,7 @@ from biblio_search.models import (
     QuestionFormat,
     SearchResult,
     StrategyOptions,
+    Vocabulary,
 )
 from biblio_search.pipeline import (
     CountReceived,
@@ -52,6 +60,7 @@ from biblio_search.pipeline import (
     SearchReport,
     search_progress,
 )
+from biblio_search.protocols import Thesaurus
 from biblio_search.question_file import (
     dump_question,
     parse_question,
@@ -157,6 +166,7 @@ def create_app(
     open_decs: DecsFactory | None = None,
     screening_path: Path | None = None,
     open_assistant: AssistantFactory | None = None,
+    eric_thesaurus: EricThesaurusFile | None = None,
 ) -> FastAPI:
     """Build the application.
 
@@ -167,6 +177,8 @@ def create_app(
     the page opens. ``screening_path`` is the SQLite file where searches are screened; it is
     only created when the first search is added to it. ``open_assistant`` opens the local
     model that drafts a question from a sentence; without it that button answers an error.
+    ERIC descriptors are checked in ``eric_thesaurus`` when given, else through the ERIC
+    client of ``open_backends``; without either they are left unchecked.
     """
     others = dict(open_backends or {})
     searchable = frozenset({Database.PUBMED, *others})
@@ -294,13 +306,30 @@ def create_app(
     @app.post("/api/check")
     async def check(data: QuestionBody) -> dict[str, object]:
         question, options = parse_question(data)
-        mesh = MeshThesaurus(client())
         decs: DecsSearch | None = app.state.decs
-        thesaurus = mesh if decs is None else DecsMeshThesaurus(mesh, decs)
-        result = await check_question(question, thesaurus)
-        fixed = apply_check(question, result)
-        view = check_view(result, decs=decs is not None)
-        return {**view, "fixed": question_to_data(fixed, options)}
+        vocabularies = vocabularies_to_check(question)
+        thesauri: list[Thesaurus] = []
+        if Vocabulary.MESH in vocabularies:
+            mesh = MeshThesaurus(client())
+            thesauri.append(mesh if decs is None else DecsMeshThesaurus(mesh, decs))
+        eric = app.state.backends.get(Database.ERIC)
+        if Vocabulary.ERIC in vocabularies and eric_thesaurus is not None:
+            thesauri.append(EricFileThesaurus(eric_thesaurus))
+        elif Vocabulary.ERIC in vocabularies and isinstance(eric, EricClient):
+            thesauri.append(EricApiThesaurus(eric))
+        results = await check_all(question, thesauri)
+        fixed = apply_checks(question, results)
+        views = [
+            check_view(
+                result,
+                decs=decs is not None,
+                source=describe_source(eric_thesaurus)
+                if result.vocabulary == Vocabulary.ERIC
+                else None,
+            )
+            for result in results
+        ]
+        return {"results": views, "fixed": question_to_data(fixed, options)}
 
     @app.post("/api/draft")
     async def draft(body: DraftRequest) -> dict[str, object]:
@@ -320,7 +349,7 @@ def create_app(
             "model": result.model,
             "notes": list(result.notes),
             # El modelo escribe en inglés: el aviso de DeCS no aplica a su borrador.
-            "check": check_view(result.check, decs=True) if result.check else None,
+            "check": {"results": [check_view(result.check, decs=True)]} if result.check else None,
         }
 
     @app.post("/api/search", response_class=EventSourceResponse)

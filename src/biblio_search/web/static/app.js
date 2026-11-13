@@ -574,8 +574,23 @@ function renderPreview(preview) {
 
 const STATUS_LABELS = { valid: "ok", entry_term: "synonym", translated: "Spanish", not_found: "not found" };
 
-function renderCheck(result) {
-  const box = $("check-result");
+function headingText(check) {
+  return check.identifier ? `${check.heading} (${check.identifier})` : check.heading;
+}
+
+// Una comprobación por tesauro (MeSH, ERIC); las correcciones de todas van juntas en «fixed».
+function renderCheck(response) {
+  const nodes = response.results.flatMap((result) => {
+    const section = el("div", "check-section");
+    section.append(el("h3", "check-title", result.vocabulary_label));
+    section.append(...checkNodes(result));
+    return [section];
+  });
+  $("check-result").replaceChildren(...nodes);
+  $("apply-check").hidden = response.results.every((r) => r.checks.every((c) => c.status === "valid"));
+}
+
+function checkNodes(result) {
   const nodes = [];
   if (!result.checks.length) nodes.push(el("p", "empty", `The question has no ${result.vocabulary_label} headings.`));
   const list = el("ul", "check-list");
@@ -583,9 +598,9 @@ function renderCheck(result) {
     const item = el("li", `check-item ${check.status}`);
     item.append(el("span", "tag", STATUS_LABELS[check.status]));
     let text;
-    if (check.status === "valid") text = `${check.heading} (${check.identifier})`;
-    else if (check.status === "entry_term") text = `${check.term} → ${check.heading} (${check.identifier})`;
-    else if (check.status === "translated") text = `${check.term} → ${check.heading} (${check.identifier}), found through DeCS`;
+    if (check.status === "valid") text = headingText(check);
+    else if (check.status === "entry_term") text = `${check.term} → ${headingText(check)}`;
+    else if (check.status === "translated") text = `${check.term} → ${headingText(check)}, found through DeCS`;
     else text = `${check.term}: will be searched as free text`;
     item.append(el("span", null, ` ${text}`), el("span", "hint", ` · ${check.condition}`));
     if (check.note) item.append(el("p", "note", check.note));
@@ -620,8 +635,8 @@ function renderCheck(result) {
     }
     nodes.push(row);
   }
-  box.replaceChildren(...nodes);
-  $("apply-check").hidden = result.checks.every((c) => c.status === "valid");
+  if (result.source) nodes.push(el("p", "note", result.source));
+  return nodes;
 }
 
 function addSynonym(label, synonym) {
@@ -640,7 +655,7 @@ async function runCheck() {
   button.disabled = true;
   button.textContent = "Checking…";
   $("check-panel").hidden = false;
-  $("check-result").replaceChildren(el("p", "empty", "Asking the MeSH thesaurus at NCBI…"));
+  $("check-result").replaceChildren(el("p", "empty", "Asking the thesauri (MeSH at NCBI, ERIC)…"));
   try {
     lastCheck = await postJson("/api/check", toData(state));
     renderCheck(lastCheck);
@@ -649,7 +664,7 @@ async function runCheck() {
     $("apply-check").hidden = true;
   } finally {
     button.disabled = false;
-    button.textContent = "Check MeSH headings";
+    button.textContent = "Check headings";
   }
 }
 

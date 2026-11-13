@@ -12,6 +12,8 @@ import uvicorn
 from biblio_search.arxiv import ArxivClient, ArxivConfig
 from biblio_search.assistant import OllamaClient, OllamaConfig
 from biblio_search.decs import DecsClient, DecsConfig
+from biblio_search.eric import EricClient, EricConfig
+from biblio_search.eric_thesaurus import EricThesaurusFile
 from biblio_search.eutils import EutilsClient, EutilsConfig
 from biblio_search.models import Database
 from biblio_search.openalex import OpenAlexClient, OpenAlexConfig
@@ -51,6 +53,9 @@ def serve(
     def open_arxiv() -> ArxivClient:
         return ArxivClient(ArxivConfig())
 
+    def open_eric() -> EricClient:
+        return EricClient(EricConfig())
+
     decs_config = DecsConfig.from_env()
 
     def open_decs() -> DecsClient:
@@ -63,6 +68,7 @@ def serve(
         return OllamaClient(OllamaConfig.from_env())
 
     backends: dict[Database, BackendFactory] = {
+        Database.ERIC: open_eric,
         Database.ARXIV: open_arxiv,
         Database.OPENALEX: open_openalex,
     }
@@ -73,6 +79,7 @@ def serve(
         open_decs if decs_config is not None else None,
         screening_path,
         open_assistant,
+        EricThesaurusFile.from_env(),
     )
     sock = bind_local(port)
     try:

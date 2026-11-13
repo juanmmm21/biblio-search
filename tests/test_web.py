@@ -6,8 +6,9 @@ from collections.abc import AsyncIterator, Iterator, Mapping, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import httpx
 import pytest
-from conftest import load_fixture, mesh_fixture_for
+from conftest import FIXTURES, eric_fixture_for, load_fixture, mesh_fixture_for
 from fastapi.testclient import TestClient
 
 import biblio_search.web as web
@@ -15,10 +16,13 @@ from biblio_search import openalex
 from biblio_search.__main__ import main
 from biblio_search.assistant import AssistantError, LanguageModel
 from biblio_search.decs import DecsDescriptor, DecsSearch, parse_descriptors
+from biblio_search.eric import EricClient, EricConfig
+from biblio_search.eric_thesaurus import EricThesaurusFile
 from biblio_search.eutils import EutilsError, parse_search, parse_summaries
 from biblio_search.models import ArticleSummary, Database, SearchResult
 from biblio_search.openalex import OpenAlexError
 from biblio_search.pipeline import SearchBackend
+from biblio_search.ratelimit import RateLimiter
 from biblio_search.web.app import KEPT_SEARCHES, BackendFactory, NcbiClient, create_app
 from biblio_search.web.server import bind_local
 
@@ -82,6 +86,8 @@ def make_client(
     decs: DecsSearch | None = None,
     screening: Path | None = None,
     assistant: LanguageModel | None = None,
+    with_eric: bool = False,
+    eric_thesaurus: EricThesaurusFile | None = None,
 ) -> TestClient:
     ncbi = fake or FakeNcbi()
     openalex_backend = other or FakeOpenAlex()
@@ -104,9 +110,26 @@ def make_client(
         assert assistant is not None
         yield assistant
 
+    def open_eric() -> EricClient:
+        def handler(request: httpx.Request) -> httpx.Response:
+            name = eric_fixture_for(request.url.params["search"])
+            return httpx.Response(200, content=(FIXTURES / name).read_bytes())
+
+        async def no_wait(_: float) -> None:
+            return None
+
+        return EricClient(
+            EricConfig(),
+            transport=httpx.MockTransport(handler),
+            limiter=RateLimiter(1000, sleep=no_wait),
+            sleep=no_wait,
+        )
+
     backends: dict[Database, BackendFactory] = (
         {Database.OPENALEX: open_openalex} if with_openalex else {}
     )
+    if with_eric:
+        backends[Database.ERIC] = open_eric
     app = create_app(
         open_client,
         initial,
@@ -114,6 +137,7 @@ def make_client(
         open_decs if decs is not None else None,
         screening,
         open_assistant if assistant is not None else None,
+        eric_thesaurus,
     )
     return TestClient(app, base_url=BASE_URL)
 
@@ -307,7 +331,9 @@ def test_check_reports_headings_and_returns_the_fixed_question(client: TestClien
     response = client.post("/api/check", json=data)
 
     assert response.status_code == 200
-    result = response.json()
+    body = response.json()
+    (result,) = body["results"]
+    assert result["source"] is None
     statuses = {check["term"]: check["status"] for check in result["checks"]}
     assert statuses == {
         "Anxiety": "valid",
@@ -320,7 +346,7 @@ def test_check_reports_headings_and_returns_the_fixed_question(client: TestClien
     assert (carers["heading"], carers["identifier"]) == ("Caregivers", "D017028")
     aged = next(c for c in result["checks"] if c["term"] == "Aged")
     assert "narrower" in aged["note"]
-    fixed = result["fixed"]["components"][1]["conditions"][0]
+    fixed = body["fixed"]["components"][1]["conditions"][0]
     assert fixed["controlled"] == ["Caregivers"]
     assert "Made Up Heading" in fixed["free"]
     assert result["unchecked"] == []
@@ -637,20 +663,82 @@ def _spanish_question() -> dict[str, object]:
 
 def test_check_translates_spanish_headings_with_decs() -> None:
     with make_client(decs=FakeDecs()) as test_client:
-        result = test_client.post("/api/check", json=_spanish_question()).json()
+        body = test_client.post("/api/check", json=_spanish_question()).json()
+    (result,) = body["results"]
     statuses = {c["term"]: (c["status"], c["heading"]) for c in result["checks"]}
     assert statuses == {"Músculos": ("translated", "Muscles"), "Qwzx": ("not_found", None)}
     assert result["decs"] is True and result["decs_hint"] is None
-    fixed = result["fixed"]["components"][0]["conditions"][0]
+    fixed = body["fixed"]["components"][0]["conditions"][0]
     assert fixed["controlled"] == ["Muscles"]
     assert fixed["free"] == ["Qwzx", "muscle*"]
 
 
 def test_check_without_decs_says_how_to_get_it(client: TestClient) -> None:
-    result = client.post("/api/check", json=_spanish_question()).json()
+    (result,) = client.post("/api/check", json=_spanish_question()).json()["results"]
     assert result["decs"] is False
     assert result["decs_hint"]["url"] == "https://decs.bvsalud.org/en/for-developers/"
-    assert client.post("/api/check", json=example_data()).json()["decs_hint"] is None
+    (example,) = client.post("/api/check", json=example_data()).json()["results"]
+    assert example["decs_hint"] is None
+
+
+def _eric_question() -> dict[str, object]:
+    return {
+        "question": "q",
+        "format": "concepts",
+        "components": [
+            {
+                "role": "concept",
+                "description": "peer tutoring",
+                "conditions": [
+                    {
+                        "label": "peer tutoring",
+                        "controlled": [
+                            {"term": "peer teaching", "vocabulary": "eric"},
+                            {"term": "Peer Tutoring", "vocabulary": "eric"},
+                            "Anxiety",
+                        ],
+                        "free": ["tutor*"],
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def test_check_asks_mesh_and_eric_each_for_its_headings() -> None:
+    with make_client(with_eric=True) as test_client:
+        body = test_client.post("/api/check", json=_eric_question()).json()
+    mesh, eric = body["results"]
+    assert (mesh["vocabulary"], eric["vocabulary"]) == ("mesh", "eric")
+    assert [c["term"] for c in mesh["checks"]] == ["Anxiety"]
+    statuses = {c["term"]: (c["status"], c["heading"], c["identifier"]) for c in eric["checks"]}
+    assert statuses == {
+        "peer teaching": ("valid", "Peer Teaching", ""),
+        "Peer Tutoring": ("not_found", None, None),
+    }
+    assert mesh["unchecked"] == eric["unchecked"] == []
+    assert mesh["source"] is None and "through the ERIC API" in eric["source"]
+    fixed = body["fixed"]["components"][0]["conditions"][0]
+    assert fixed["controlled"] == [{"term": "Peer Teaching", "vocabulary": "eric"}, "Anxiety"]
+    assert fixed["free"] == ["Peer Tutoring", "tutor*"]
+
+
+def test_check_prefers_the_eric_thesaurus_file() -> None:
+    thesaurus = EricThesaurusFile.load(FIXTURES / "eric_thesaurus_excerpt.xml")
+    with make_client(eric_thesaurus=thesaurus) as test_client:
+        body = test_client.post("/api/check", json=_eric_question()).json()
+    eric = body["results"][1]
+    tutoring = next(c for c in eric["checks"] if c["term"] == "Peer Tutoring")
+    assert (tutoring["status"], tutoring["heading"]) == ("entry_term", "Peer Teaching")
+    assert "Tutoring too" in tutoring["note"]
+    assert eric["source"].endswith("ERIC Thesaurus file (7 terms)")
+
+
+def test_check_leaves_eric_unchecked_without_a_way_to_ask() -> None:
+    with make_client() as test_client:
+        body = test_client.post("/api/check", json=_eric_question()).json()
+    (mesh,) = body["results"]
+    assert [t["text"] for t in mesh["unchecked"]] == ["peer teaching", "Peer Tutoring"]
 
 
 def test_tune_streams_one_report_per_database(client: TestClient) -> None:
@@ -724,9 +812,10 @@ def test_draft_fills_the_form_and_checks_the_headings() -> None:
     assert question["question"] == FIBROMYALGIA
     assert (question["format"], question["discipline"]) == ("pico", "health")
     assert any("comparison" in note for note in body["notes"])
-    statuses = {check["term"]: check["status"] for check in body["check"]["checks"]}
+    (check,) = body["check"]["results"]
+    statuses = {c["term"]: c["status"] for c in check["checks"]}
     assert statuses == {"Fibromyalgia": "not_found", "Exercise": "not_found", "Pain": "not_found"}
-    assert body["check"]["decs_hint"] is None
+    assert check["decs_hint"] is None
     # La disciplina viene elegida pero el formato no: el modelo clasifica igualmente.
     assert len(ollama.schemas) == 2
 

@@ -276,6 +276,8 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent-soft
 .tree-condition { font-weight: 600; font-size: 14px; }
 
 .check-list { list-style: none; padding: 0; margin: 0; }
+.check-section + .check-section { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
+.check-title { margin: 0 0 6px; font: 600 14px var(--sans); color: var(--muted); }
 .check-item { padding: 6px 0; border-top: 1px solid var(--line); }
 .check-item:first-child { border-top: 0; }
 .check-item.valid .tag { background: #e3f1e5; color: var(--ok); }

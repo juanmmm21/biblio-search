@@ -151,7 +151,8 @@ def record_view(database: Database, record: ArticleSummary) -> JsonDict:
     }
 
 
-def check_view(result: QuestionCheck, *, decs: bool = False) -> JsonDict:
+def check_view(result: QuestionCheck, *, decs: bool = False, source: str | None = None) -> JsonDict:
+    """One thesaurus check; ``source`` says where the headings were confirmed."""
     # Sin clave de DeCS, un término que no está en MeSH puede ser uno en castellano: se dice
     # cómo traducirlo en vez de dejarlo solo como «no encontrado».
     missing = any(check.status is TermStatus.NOT_FOUND for check in result.checks)
@@ -166,6 +167,7 @@ def check_view(result: QuestionCheck, *, decs: bool = False) -> JsonDict:
     return {
         "decs": decs,
         "decs_hint": decs_hint,
+        "source": source,
         "vocabulary": result.vocabulary,
         "vocabulary_label": VOCABULARY_LABELS.get(result.vocabulary, result.vocabulary),
         "checks": [
