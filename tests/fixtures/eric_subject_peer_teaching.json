@@ -1,0 +1,274 @@
+{
+  "response":{"numFound":6447,"start":0,"numFoundExact":true,"docs":[
+      {
+        "subject":["Interaction",
+          "Tutoring",
+          "Peer Teaching"]},
+      {
+        "subject":["Methods",
+          "Peer Teaching",
+          "Cooperative Learning"]},
+      {
+        "subject":["Tutoring",
+          "Peer Teaching",
+          "Learning Disabilities"]},
+      {
+        "subject":["Peer Teaching",
+          "Teacher Role",
+          "Training Methods"]},
+      {
+        "subject":["Peer Teaching",
+          "Cooperative Learning",
+          "Behavior Disorders"]},
+      {
+        "subject":["Mathematics Instruction",
+          "Learning Strategies",
+          "Peer Teaching"]},
+      {
+        "subject":["Adult Education",
+          "Adult Educators",
+          "Peer Teaching"]},
+      {
+        "subject":["Faculty Development",
+          "Peer Teaching",
+          "Psychological Patterns",
+          "Leadership"]},
+      {
+        "subject":["Peer Teaching",
+          "Learner Engagement",
+          "Outcomes of Education"]},
+      {
+        "subject":["Individualized Instruction",
+          "Peer Teaching",
+          "Proctoring",
+          "Teaching Methods"]},
+      {
+        "subject":["Lesson Plans",
+          "Microteaching",
+          "Peer Teaching",
+          "Practicum Supervision"]},
+      {
+        "subject":["Peer Teaching",
+          "Tutoring",
+          "Case Studies",
+          "Tutorial Programs"]},
+      {
+        "subject":["Adolescents",
+          "Driver Education",
+          "Peer Teaching",
+          "Safety Education"]},
+      {
+        "subject":["Intermediate Grades",
+          "Peer Teaching",
+          "Severe Disabilities",
+          "Tutoring"]},
+      {
+        "subject":["Elementary Education",
+          "Handicapped Children",
+          "Peer Teaching",
+          "Tutoring"]},
+      {
+        "subject":["Higher Education",
+          "Peer Teaching",
+          "Tutoring",
+          "Undergraduate Study"]},
+      {
+        "subject":["Coding",
+          "Correlation",
+          "Peer Teaching",
+          "Reliability",
+          "Research Methodology",
+          "Tutoring"]},
+      {
+        "subject":["Elementary Secondary Education",
+          "Peer Teaching",
+          "Teaching Guides",
+          "Tutoring"]},
+      {
+        "subject":["Grade 5",
+          "Reading Strategies",
+          "Peer Teaching",
+          "Reading Comprehension"]},
+      {
+        "subject":["Adult Education",
+          "Foreign Countries",
+          "Patient Education",
+          "Peer Teaching"]},
+      {
+        "subject":["Adult Education",
+          "Foreign Countries",
+          "Older Adults",
+          "Peer Teaching"]},
+      {
+        "subject":["Cognitive Style",
+          "Learning Motivation",
+          "Peer Teaching",
+          "Student Attitudes"]},
+      {
+        "subject":["Accessibility (for Disabled)",
+          "Job Training",
+          "Peer Teaching",
+          "Tutoring"]},
+      {
+        "subject":["Higher Education",
+          "Ideology",
+          "Peer Teaching",
+          "Tutoring",
+          "Writing Laboratories"]},
+      {
+        "subject":["Peer Teaching",
+          "Secondary Education",
+          "Slow Learners",
+          "Student Attitudes"]},
+      {
+        "subject":["Disabilities",
+          "Elementary Secondary Education",
+          "Models",
+          "Peer Teaching",
+          "Tutoring"]},
+      {
+        "subject":["Cooperation",
+          "Games",
+          "Group Activities",
+          "Learning Disabilities",
+          "Peer Teaching"]},
+      {
+        "subject":["Elementary Secondary Education",
+          "Peer Teaching",
+          "Reading Difficulties",
+          "Tutoring"]},
+      {
+        "subject":["Audiovisual Aids",
+          "Peer Teaching",
+          "Production Techniques",
+          "Secondary Education"]},
+      {
+        "subject":["Peer Teaching",
+          "Problem Solving",
+          "Physiology",
+          "Academic Achievement",
+          "Students"]},
+      {
+        "subject":["Peer Teaching",
+          "Prediction",
+          "Secondary Education",
+          "Slow Learners",
+          "Student Attitudes"]},
+      {
+        "subject":["Peer Teaching",
+          "Consultants",
+          "Instructional Design",
+          "Interdisciplinary Approach",
+          "Graduate Students"]},
+      {
+        "subject":["Communities of Practice",
+          "Peer Teaching",
+          "Mentors",
+          "Role",
+          "Teaching Methods"]},
+      {
+        "subject":["Theater Arts",
+          "Participation",
+          "Peer Teaching",
+          "Facilitators (Individuals)",
+          "Barriers",
+          "Aesthetics"]},
+      {
+        "subject":["Higher Education",
+          "Peer Teaching",
+          "Student Participation",
+          "Teachers",
+          "Undergraduate Study"]},
+      {
+        "subject":["Annotated Bibliographies",
+          "Peer Teaching",
+          "Student Participation",
+          "Student Volunteers",
+          "Volunteers"]},
+      {
+        "subject":["Consultants",
+          "Learning Strategies",
+          "Experiential Learning",
+          "Peer Teaching",
+          "Higher Education"]},
+      {
+        "subject":["Program Effectiveness",
+          "Tutoring",
+          "Feedback",
+          "Peer Teaching",
+          "Intervention",
+          "Mathematics",
+          "Scores"]},
+      {
+        "subject":["Group Experience",
+          "Higher Education",
+          "Peer Teaching",
+          "Problem Based Learning"]},
+      {
+        "subject":["Computer Literacy",
+          "Computer Software",
+          "Microcomputers",
+          "Peer Teaching",
+          "Training",
+          "Troubleshooting"]},
+      {
+        "subject":["Elementary Education",
+          "Peer Teaching",
+          "Reading Achievement",
+          "Reading Instruction",
+          "Tutoring"]},
+      {
+        "subject":["Educational Strategies",
+          "Peer Teaching",
+          "Technology Education",
+          "Theory Practice Relationship"]},
+      {
+        "subject":["Cooperation",
+          "Elementary Education",
+          "Interpersonal Competence",
+          "Peer Teaching",
+          "Social Behavior"]},
+      {
+        "subject":["Autism",
+          "Disabilities",
+          "Interpersonal Competence",
+          "Intervention",
+          "Peer Teaching",
+          "Withdrawal (Psychology)"]},
+      {
+        "subject":["Disabilities",
+          "Elementary Secondary Education",
+          "Peer Teaching",
+          "Program Development",
+          "Tutoring"]},
+      {
+        "subject":["Disabilities",
+          "Elementary Secondary Education",
+          "Peer Teaching",
+          "Program Implementation",
+          "Tutoring"]},
+      {
+        "subject":["Autism",
+          "Early Childhood Education",
+          "Mainstreaming",
+          "Peer Relationship",
+          "Peer Teaching"]},
+      {
+        "subject":["Children",
+          "Cross Age Teaching",
+          "Peer Teaching",
+          "Reading Improvement",
+          "Underachievement"]},
+      {
+        "subject":["Autism",
+          "Elementary Education",
+          "Interpersonal Relationship",
+          "Peer Relationship",
+          "Peer Teaching"]},
+      {
+        "subject":["Games",
+          "Learning Disabilities",
+          "Peer Teaching",
+          "Primary Education",
+          "Spelling Instruction"]}]
+  }}

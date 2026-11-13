@@ -1,0 +1,29 @@
+{
+  "response":{"numFound":160,"start":0,"numFoundExact":true,"docs":[
+      {
+        "id":"EJ888659",
+        "title":"The Impact of Cross-Age Peer Tutoring on Third and Sixth Graders' Reading Strategy Awareness, Reading Strategy Use, and Reading Comprehension",
+        "author":["Van Keer, Hilde",
+          "Vanderlinde, Ruben"],
+        "source":"Middle Grades Research Journal",
+        "publicationtype":["Journal Articles",
+          "Reports - Research"],
+        "publicationdateyear":2010},
+      {
+        "id":"EJ1257338",
+        "title":"The Effects of a Peer-Tutoring Strategy on Children&apos;s e-Book Reading Comprehension",
+        "author":["Tsuei, Mengping",
+          "Huang, Hsiu-Wen",
+          "Cheng, Shu-Fen"],
+        "source":"South African Journal of Education",
+        "publicationtype":["Journal Articles",
+          "Reports - Research"],
+        "publicationdateyear":2020},
+      {
+        "id":"ED395269",
+        "title":"Using Cross-Age Tutoring to Improve Reading Comprehension Skills in Elementary Language Arts Students.",
+        "author":["Collier, Janet C."],
+        "publicationtype":["Dissertations/Theses - Practicum Papers",
+          "Reports - Descriptive"],
+        "publicationdateyear":1995}]
+  }}

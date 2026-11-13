@@ -51,3 +51,25 @@ arXiv API (`export.arxiv.org/api/query`, Atom), recorded on 2026-11-13:
 - `arxiv_error_syntax.xml`: the HTTP 400 error feed for `(ti:qubit` (unbalanced parenthesis).
 - `arxiv_id_list.xml`: `id_list=1706.03762,hep-th/9711200,2007.05129`, which arXiv answered
   in a different order from the one asked for.
+
+ERIC API (`api.ies.ed.gov/eric/`, `format=json`, no key), recorded on 2026-11-13:
+
+- `eric_search_peer_tutoring.json`: the ERIC equation of `examples/peer-tutoring-reading.toml`,
+  `rows=3`, with the fields biblio-search reads (160 results; the second title carries the
+  `&apos;` entity ERIC leaves in some titles).
+- `eric_error_syntax.json`: `title:(peer` (unbalanced parenthesis), which Solr rejects with
+  an `error` object and HTTP 200.
+- `eric_id_list.json`: `id:(EJ1257338 OR ED395269 OR EJ888659)`, which ERIC answers in its
+  own order.
+- `eric_subject_<term>.json`: `subject:"<term>"`, `rows=50`, `fields=subject`, for peer
+  teaching (a descriptor), peer tutoring (a synonym that slipped into one record) and qwzx
+  learning (nothing).
+- `eric_count_<term>.json`: `subject_ss:"<Term>"`, `rows=0`: 6447 records carry Peer Teaching
+  and one carries Peer Tutoring.
+
+ERIC Thesaurus (`ERICThesaurus2025.zip` from eric.ed.gov/?download, January 2025 edition):
+
+- `eric_thesaurus_excerpt.xml`: seven terms of the XML file, unchanged: the descriptors Peer
+  Teaching, Tutoring, Reading Comprehension and Elementary School Students, the synonyms Peer
+  Tutoring (used for two descriptors) and Tutorial Instruction, and the dead descriptor
+  American Culture (1966 1980).
