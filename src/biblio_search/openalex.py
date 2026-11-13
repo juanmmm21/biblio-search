@@ -30,6 +30,10 @@ PAGE_SIZE = 100
 # OpenAlex no pagina más allá de page * per_page = 10 000 sin cursor (y el cursor pide clave).
 MAX_RESULTS = 10_000
 SUMMARY_FIELDS = "id,ids,doi,display_name,publication_year,authorships,primary_location,type"
+LINK_FIELDS = "id,doi,ids,referenced_works"
+# Los filtros admiten hasta 100 valores unidos con «|»; la lista de citas, hasta 200 por página.
+FILTER_BATCH = 100
+CITING_PAGE_SIZE = 200
 _WORK_ID = re.compile(r"^W\d+$")
 _RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
 # Un Retry-After largo es el presupuesto diario agotado: esperar no sirve, se avisa ya.
@@ -157,6 +161,44 @@ def parse_work(work: Mapping[str, object]) -> ArticleSummary:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class WorkLinks:
+    """A work's identifiers and the works it cites, to snowball from it."""
+
+    work_id: str
+    doi: str | None
+    pmid: str | None
+    referenced: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class CitingWorks:
+    """The works that cite one work: how many there are and the first ones fetched."""
+
+    total: int
+    records: tuple[ArticleSummary, ...]
+
+
+def parse_links(work: Mapping[str, object]) -> WorkLinks:
+    """Read the identifiers and ``referenced_works`` of one work."""
+    url = _as_str(work.get("id"))
+    if not url:
+        raise OpenAlexError("unexpected OpenAlex response: a work has no id")
+    referenced = tuple(
+        _short_id(ref) for ref in _as_list(work.get("referenced_works")) if isinstance(ref, str)
+    )
+    return WorkLinks(
+        work_id=_short_id(url),
+        doi=_as_str(work.get("doi")).removeprefix(DOI_URL_PREFIX) or None,
+        pmid=_pmid(work),
+        referenced=referenced,
+    )
+
+
+def _batches(values: Sequence[str]) -> list[Sequence[str]]:
+    return [values[start : start + FILTER_BATCH] for start in range(0, len(values), FILTER_BATCH)]
+
+
 class OpenAlexClient:
     """OpenAlex client. Use as ``async with OpenAlexClient(config) as client: ...``."""
 
@@ -230,30 +272,94 @@ class OpenAlexClient:
             count=result.count, ids=selected, query_translation=result.query_translation
         )
 
-    async def summaries(self, ids: Sequence[str]) -> tuple[ArticleSummary, ...]:
-        """Fetch the works ``ids`` (``W…``) in the given order, 100 per request."""
+    async def summaries(
+        self, ids: Sequence[str], *, missing_ok: bool = False
+    ) -> tuple[ArticleSummary, ...]:
+        """Fetch the works ``ids`` (``W…``) in the given order, 100 per request.
+
+        A work OpenAlex no longer has is an error, or is left out with ``missing_ok``: the
+        references of a work can point to records OpenAlex has merged or withdrawn since.
+        """
         invalid = [work_id for work_id in ids if not _WORK_ID.match(work_id)]
         if invalid:
             raise ValueError(f"invalid OpenAlex work ids: {', '.join(invalid)}")
         found: dict[str, ArticleSummary] = {}
-        for start in range(0, len(ids), PAGE_SIZE):
-            batch = ids[start : start + PAGE_SIZE]
-            payload = await self.get_json(
-                "works",
-                {
-                    "filter": "ids.openalex:" + "|".join(batch),
-                    "select": SUMMARY_FIELDS,
-                    "per_page": str(PAGE_SIZE),
-                },
-            )
+        for batch in _batches(ids):
+            payload = await self._filter("ids.openalex", batch, SUMMARY_FIELDS)
             for item in _as_list(payload.get("results")):
                 record = parse_work(_as_mapping(item, "work"))
                 found[record.record_id] = record
         # El filtro no respeta el orden de relevancia de la búsqueda: se recompone aquí.
         missing = [work_id for work_id in ids if work_id not in found]
-        if missing:
+        if missing and not missing_ok:
             raise OpenAlexError(f"OpenAlex has no record for {', '.join(missing)}")
-        return tuple(found[work_id] for work_id in ids)
+        return tuple(found[work_id] for work_id in ids if work_id in found)
+
+    async def links(
+        self,
+        *,
+        work_ids: Sequence[str] = (),
+        dois: Sequence[str] = (),
+        pmids: Sequence[str] = (),
+    ) -> tuple[WorkLinks, ...]:
+        """Find works by OpenAlex id, DOI or PMID, with the works each one cites.
+
+        Identifiers OpenAlex does not know are simply not in the answer; the caller matches
+        the works it gets back by their identifiers.
+        """
+        invalid = [work_id for work_id in work_ids if not _WORK_ID.match(work_id)]
+        invalid += [pmid for pmid in pmids if not pmid.isdigit()]
+        # «|» y «,» separan valores y filtros: un DOI que los lleve no cabe en un filtro.
+        invalid += [doi for doi in dois if not doi or "|" in doi or "," in doi]
+        if invalid:
+            raise ValueError(f"invalid identifiers: {', '.join(invalid)}")
+        found: dict[str, WorkLinks] = {}
+        for field, values in (("ids.openalex", work_ids), ("doi", dois), ("pmid", pmids)):
+            for batch in _batches(values):
+                payload = await self._filter(field, batch, LINK_FIELDS)
+                for item in _as_list(payload.get("results")):
+                    work = parse_links(_as_mapping(item, "work"))
+                    found[work.work_id] = work
+        return tuple(found.values())
+
+    async def citing(self, work_id: str, *, limit: int) -> CitingWorks:
+        """The works that cite ``work_id``, most cited first, up to ``limit`` of them."""
+        if not _WORK_ID.match(work_id):
+            raise ValueError(f"invalid OpenAlex work id: {work_id}")
+        if not 0 <= limit <= MAX_RESULTS:
+            raise ValueError(f"limit must be between 0 and {MAX_RESULTS}")
+        per_page = min(CITING_PAGE_SIZE, limit) or 1
+        records: list[ArticleSummary] = []
+        total = 0
+        page = 1
+        while True:
+            payload = await self.get_json(
+                "works",
+                {
+                    "filter": f"cites:{work_id}",
+                    "select": SUMMARY_FIELDS,
+                    "sort": "cited_by_count:desc",
+                    "per_page": str(per_page),
+                    "page": str(page),
+                },
+            )
+            total = parse_search(payload).count
+            results = _as_list(payload.get("results"))
+            records.extend(parse_work(_as_mapping(item, "work")) for item in results)
+            if len(records) >= limit or len(results) < per_page:
+                break
+            page += 1
+        return CitingWorks(total=total, records=tuple(records[:limit]))
+
+    async def _filter(self, field: str, values: Sequence[str], fields: str) -> Mapping[str, object]:
+        return await self.get_json(
+            "works",
+            {
+                "filter": f"{field}:" + "|".join(values),
+                "select": fields,
+                "per_page": str(FILTER_BATCH),
+            },
+        )
 
     def _retry_delay(self, attempt: int, response: httpx.Response | None) -> float:
         if response is not None:

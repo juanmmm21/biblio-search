@@ -13,6 +13,7 @@ from biblio_search.openalex import (
     OpenAlexClient,
     OpenAlexConfig,
     OpenAlexError,
+    parse_links,
     parse_search,
     parse_work,
 )
@@ -222,6 +223,115 @@ def test_summaries_are_batched_and_complain_about_missing_works() -> None:
     with pytest.raises(OpenAlexError, match="no record for W150"):
         asyncio.run(scenario())
     assert len(recorder.requests) == 2
+
+
+ZARIT = "W2130900065"
+
+
+def test_parse_links_fixture() -> None:
+    (work,) = load_fixture("openalex_links_zarit.json")["results"]  # type: ignore[misc]
+    links = parse_links(work)
+    assert links.work_id == ZARIT
+    assert links.doi == "10.1093/geront/20.6.649"
+    assert links.pmid == "7203086"
+    assert len(links.referenced) == 25
+    assert links.referenced[0] == "W229834578"
+    with pytest.raises(OpenAlexError, match="no id"):
+        parse_links({"referenced_works": []})
+
+
+def test_links_ask_by_each_kind_of_identifier() -> None:
+    recorder = Recorder(
+        _ok({"results": [{"id": "https://openalex.org/W5", "referenced_works": None}]}),
+        _ok("openalex_links_zarit.json"),
+        _ok({"results": []}),
+    )
+
+    async def scenario() -> None:
+        async with recorder.client() as client:
+            works = await client.links(
+                work_ids=["W5"], dois=["10.1093/geront/20.6.649"], pmids=["1", "2"]
+            )
+        assert [w.work_id for w in works] == ["W5", ZARIT]
+        assert works[0].referenced == ()
+
+    asyncio.run(scenario())
+    filters = [r.url.params["filter"] for r in recorder.requests]
+    assert filters == ["ids.openalex:W5", "doi:10.1093/geront/20.6.649", "pmid:1|2"]
+    assert recorder.requests[0].url.params["select"] == "id,doi,ids,referenced_works"
+
+
+def test_links_skip_empty_lists_and_refuse_bad_identifiers() -> None:
+    recorder = Recorder()
+
+    async def scenario(**kwargs: list[str]) -> None:
+        async with recorder.client() as client:
+            assert await client.links(**kwargs) == ()
+
+    asyncio.run(scenario())
+    assert recorder.requests == []
+    for bad in ({"work_ids": ["X1"]}, {"pmids": ["12a"]}, {"dois": ["10.1/a|b"]}):
+        with pytest.raises(ValueError, match="invalid identifiers"):
+            asyncio.run(scenario(**bad))
+
+
+def test_citing_sorts_by_citations_and_keeps_the_total() -> None:
+    recorder = Recorder(_ok("openalex_citing_zarit.json"))
+
+    async def scenario() -> None:
+        async with recorder.client() as client:
+            found = await client.citing(ZARIT, limit=3)
+        assert found.total == 5968
+        assert len(found.records) == 3
+        assert found.records[1].title == "Caregiver Burden: A Clinical Review"
+
+    asyncio.run(scenario())
+    params = recorder.requests[0].url.params
+    assert params["filter"] == f"cites:{ZARIT}"
+    assert params["sort"] == "cited_by_count:desc"
+    assert (params["per_page"], params["page"]) == ("3", "1")
+
+
+def test_citing_pages_up_to_the_limit() -> None:
+    def works(start: int, size: int) -> dict[str, object]:
+        ids = range(start, start + size)
+        return {
+            "meta": {"count": 900},
+            "results": [{"id": f"https://openalex.org/W{n}"} for n in ids],
+        }
+
+    recorder = Recorder(_ok(works(1, 200)), _ok(works(201, 200)))
+
+    async def scenario() -> None:
+        async with recorder.client() as client:
+            found = await client.citing("W1", limit=250)
+        assert found.total == 900
+        assert [r.record_id for r in found.records] == [f"W{n}" for n in range(1, 251)]
+
+    asyncio.run(scenario())
+    assert [r.url.params["page"] for r in recorder.requests] == ["1", "2"]
+
+    async def refused(work_id: str, limit: int) -> None:
+        async with Recorder().client() as client:
+            await client.citing(work_id, limit=limit)
+
+    with pytest.raises(ValueError, match="invalid OpenAlex work id"):
+        asyncio.run(refused("12", 1))
+    with pytest.raises(ValueError, match="limit"):
+        asyncio.run(refused("W1", 10_001))
+
+
+def test_summaries_can_leave_out_works_openalex_no_longer_has() -> None:
+    recorder = Recorder(_ok("openalex_references_zarit.json"))
+    wanted = ("W229834578", "W99999999999", "W235183263", "W1640326000")
+
+    async def scenario() -> None:
+        async with recorder.client() as client:
+            records = await client.summaries(wanted, missing_ok=True)
+        assert [r.record_id for r in records] == ["W229834578", "W235183263", "W1640326000"]
+        assert records[0].title == "Envejecimiento y familia"
+
+    asyncio.run(scenario())
 
 
 def test_rejected_queries_explain_why() -> None:

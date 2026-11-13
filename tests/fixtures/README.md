@@ -22,6 +22,13 @@ OpenAlex works API (`api.openalex.org/works`, no key), recorded on 2026-11-06:
 - `openalex_works_caregiver.json`: `filter=ids.openalex:` the first three of those works,
   with the fields biblio-search reads (re-recorded on 2026-11-08 with `ids`, which carries
   the PMID).
+- `openalex_links_zarit.json`: `filter=doi:10.1093/geront/20.6.649` (Zarit et al., 1980,
+  W2130900065) with `select=id,doi,ids,referenced_works`, recorded on 2026-11-13.
+- `openalex_references_zarit.json`: `filter=ids.openalex:` the first three of its 25
+  `referenced_works` plus `W99999999999`, which does not exist, with the summary fields
+  (3 results), recorded on 2026-11-13.
+- `openalex_citing_zarit.json`: `filter=cites:W2130900065`, `sort=cited_by_count:desc`,
+  `per_page=3`, page 1, with the summary fields (5968 citing works), recorded on 2026-11-13.
 - `openalex_error_wildcard.json`: the HTTP 400 answer to a wildcard inside a quoted phrase
   (`"family caregiv*"`).
 
