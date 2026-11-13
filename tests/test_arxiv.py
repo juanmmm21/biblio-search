@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 
 import httpx
@@ -15,7 +16,8 @@ from biblio_search.arxiv import (
     parse_page,
     short_id,
 )
-from biblio_search.models import ArticleSummary, DatabaseError, SearchResult
+from biblio_search.merge import merge_records
+from biblio_search.models import ArticleSummary, Database, DatabaseError, SearchResult
 from biblio_search.ratelimit import RateLimiter
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -84,7 +86,7 @@ def test_parse_page_fixture() -> None:
     assert preprint.authors == ("Evgenii Egorov", "Roberto Bondesan", "Max Welling")
     assert preprint.year == 2023
     assert preprint.publication_types == ("preprint",)
-    assert preprint.doi is None and preprint.journal == ""
+    assert preprint.doi == "10.48550/arXiv.2304.07362" and preprint.journal == ""
     assert preprint.url == "https://arxiv.org/abs/2304.07362"
     assert published.journal == "Nature 635, 834-840 (2024)"
     assert published.doi == "10.1038/s41586-024-08148-8"
@@ -109,6 +111,14 @@ def test_parse_page_rejects_error_feeds_and_garbage() -> None:
         parse_page(b"<html>")
     with pytest.raises(ArxivError, match="totalResults is not a number"):
         parse_page(b'<feed xmlns="http://www.w3.org/2005/Atom"></feed>')
+
+
+def test_preprint_merges_with_its_openalex_twin_by_the_arxiv_doi() -> None:
+    preprint = parse_page(_fixture("arxiv_search_qec.xml")).records[0]
+    # Así aparece en OpenAlex (W4366341245), con el DOI en minúsculas.
+    twin = replace(preprint, record_id="W4366341245", doi="10.48550/arxiv.2304.07362")
+    merged = merge_records([(Database.ARXIV, [preprint]), (Database.OPENALEX, [twin])])
+    assert merged.duplicates == 1
 
 
 def test_search_returns_ids_and_remembers_records() -> None:

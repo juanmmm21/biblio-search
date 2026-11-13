@@ -24,6 +24,7 @@ from biblio_search.ratelimit import RateLimiter
 
 DEFAULT_BASE_URL = "https://export.arxiv.org/api/"
 ABS_URL_PREFIX = "https://arxiv.org/abs/"
+ARXIV_DOI_PREFIX = "10.48550/arXiv."
 # arXiv pide trozos de 2000 como mucho; con resúmenes completos, 500 por página ya pesa ~1 MB.
 PAGE_SIZE = 500
 ID_BATCH = 100
@@ -122,7 +123,9 @@ def parse_entry(entry: ET.Element) -> ArticleSummary:
         authors=authors,
         journal=journal_ref,
         year=int(year) if year.isdigit() else None,
-        doi=_text(entry, f"{_ARXIV}doi") or None,
+        # Sin DOI de revista queda el que arXiv da a todo preprint, que es el que usa OpenAlex:
+        # así el mismo trabajo se une al juntar las bases.
+        doi=_text(entry, f"{_ARXIV}doi") or ARXIV_DOI_PREFIX + record_id,
         # Con referencia de revista el preprint ya está publicado; si no, sigue siendo preprint.
         publication_types=("article",) if journal_ref else ("preprint",),
         url=ABS_URL_PREFIX + record_id,
