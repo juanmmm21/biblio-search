@@ -63,6 +63,7 @@ function emptyQuestion(format) {
     format,
     discipline: "",
     databases: [],
+    arxiv_categories: [],
     components: ROLES[format].map(emptyComponent),
     exclusions: [],
     options: { repeat_controlled_as_free: false, free_text_unindexed_only: false },
@@ -99,6 +100,7 @@ function toData(q) {
   const data = { question: q.question, format: q.format };
   if (q.discipline) data.discipline = q.discipline;
   if (q.databases.length) data.databases = q.databases;
+  if (q.arxiv_categories.length) data.arxiv_categories = q.arxiv_categories;
   data.components = q.components.map((c) => {
     const item = { description: c.description };
     if (q.format !== "concepts") item.role = c.role;
@@ -150,6 +152,7 @@ function fromData(data) {
     format,
     discipline: data.discipline || "",
     databases: data.databases || [],
+    arxiv_categories: data.arxiv_categories || [],
     components,
     exclusions: (data.exclusions || []).map(conditionFromData),
     options: {
@@ -283,6 +286,9 @@ function renderForm() {
   for (const box of $("database-checks").querySelectorAll("input")) {
     box.checked = state.databases.includes(box.value);
   }
+  const categories = $("question-arxiv-categories");
+  // Mientras se escribe no se reescribe el campo, o se comería la coma recién tecleada.
+  if (document.activeElement !== categories) categories.value = state.arxiv_categories.join(", ");
   $("opt-repeat").checked = state.options.repeat_controlled_as_free;
   $("opt-unindexed").checked = state.options.free_text_unindexed_only;
   const components = state.components.map(renderComponent);
@@ -345,6 +351,13 @@ function setupStaticForm() {
   $("question-format").addEventListener("change", (e) => changeFormat(e.target.value));
   $("question-discipline").addEventListener("change", (e) => {
     state.discipline = e.target.value;
+    schedulePreview();
+  });
+  $("question-arxiv-categories").addEventListener("input", (e) => {
+    state.arxiv_categories = e.target.value
+      .split(",")
+      .map((c) => c.trim())
+      .filter(Boolean);
     schedulePreview();
   });
   $("opt-repeat").addEventListener("change", (e) => {

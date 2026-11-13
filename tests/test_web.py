@@ -197,6 +197,20 @@ def test_without_an_openalex_client_it_is_not_searchable() -> None:
     assert events[-1][1]["identified"] == 3
 
 
+def test_preview_of_a_physics_question_builds_the_arxiv_equation(client: TestClient) -> None:
+    preview = client.post("/api/preview", json=example_data("neural-decoders-qec.toml")).json()
+    choices = preview["selection"]["choices"]
+    assert [c["database"] for c in choices] == ["arxiv", "openalex"]
+    # Este cliente de prueba no tiene backend de arXiv: se ve, pero no se puede buscar.
+    assert choices[0]["searchable"] is False
+    assert "the question narrows arXiv to some categories" in choices[0]["reasons"]
+    data = example_data("neural-decoders-qec.toml")
+    data["arxiv_categories"] = ["cs LG"]
+    bad = client.post("/api/preview", json=data)
+    assert bad.status_code == 422
+    assert "not an arXiv category" in bad.text
+
+
 def test_preview_notes_headings_searched_as_free_text(client: TestClient) -> None:
     data = example_data("peer-tutoring-reading.toml")
     data["databases"] = ["pubmed"]

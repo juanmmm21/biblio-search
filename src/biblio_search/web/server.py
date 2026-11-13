@@ -9,6 +9,7 @@ from pathlib import Path
 
 import uvicorn
 
+from biblio_search.arxiv import ArxivClient, ArxivConfig
 from biblio_search.assistant import OllamaClient, OllamaConfig
 from biblio_search.decs import DecsClient, DecsConfig
 from biblio_search.eutils import EutilsClient, EutilsConfig
@@ -47,6 +48,9 @@ def serve(
     def open_openalex() -> OpenAlexClient:
         return OpenAlexClient(OpenAlexConfig.from_env())
 
+    def open_arxiv() -> ArxivClient:
+        return ArxivClient(ArxivConfig())
+
     decs_config = DecsConfig.from_env()
 
     def open_decs() -> DecsClient:
@@ -58,7 +62,10 @@ def serve(
         # Abrir el cliente no conecta: si Ollama no está, el botón lo dice al pulsarlo.
         return OllamaClient(OllamaConfig.from_env())
 
-    backends: dict[Database, BackendFactory] = {Database.OPENALEX: open_openalex}
+    backends: dict[Database, BackendFactory] = {
+        Database.ARXIV: open_arxiv,
+        Database.OPENALEX: open_openalex,
+    }
     app = create_app(
         open_client,
         initial_question,
