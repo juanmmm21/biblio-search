@@ -1,0 +1,24 @@
+# A physics question for arXiv: free concepts, the discipline that sends it to arXiv and the
+# arXiv categories that narrow the search there (OpenAlex ignores them).
+question = "Do neural network decoders outperform classical decoders in quantum error correction?"
+format = "concepts"
+discipline = "physics"
+arxiv_categories = ["quant-ph", "cs.LG"]
+
+[[components]]
+description = "Neural network decoders"
+
+[[components.conditions]]
+label = "neural decoders"
+free = ["neural network*", "deep learning", "machine learning", "neural decoder*"]
+
+[[components]]
+description = "Quantum error correction"
+
+[[components.conditions]]
+label = "error correction"
+free = ["quantum error correct*", "surface code*", "stabilizer code*"]
+
+[[components.conditions]]
+label = "decoding"
+free = ["decod*"]
