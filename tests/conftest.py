@@ -5,7 +5,11 @@ import socket
 from collections.abc import Mapping
 from pathlib import Path
 
+import httpx
 import pytest
+
+from biblio_search.openalex import OpenAlexClient, OpenAlexConfig
+from biblio_search.ratelimit import RateLimiter
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -74,3 +78,29 @@ def eric_fixture_for(search: str) -> str:
     if search.startswith("id:"):
         return "eric_id_list.json"
     return "eric_search_peer_tutoring.json"
+
+
+SNOWBALL_FIXTURES = {
+    "doi": "openalex_links_zarit.json",
+    "cites": "openalex_citing_zarit.json",
+    "ids.openalex": "openalex_references_zarit.json",
+}
+
+
+def snowball_openalex(seen: list[httpx.Request]) -> OpenAlexClient:
+    """An OpenAlex client that answers the snowballing of Zarit (1980) from fixtures."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        kind = request.url.params["filter"].split(":", 1)[0]
+        return httpx.Response(200, json=load_fixture(SNOWBALL_FIXTURES[kind]))
+
+    async def no_wait(_: float) -> None:
+        return None
+
+    return OpenAlexClient(
+        OpenAlexConfig(),
+        transport=httpx.MockTransport(handler),
+        limiter=RateLimiter(1000, sleep=no_wait),
+        sleep=no_wait,
+    )

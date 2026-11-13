@@ -378,3 +378,11 @@ a.button { text-decoration: none; display: inline-block; }
 .decide.maybe.chosen { background: var(--free); border-color: var(--free); color: #fff; }
 .decide.exclude.chosen { background: var(--danger); border-color: var(--danger); color: #fff; }
 .search-controls[hidden] { display: none; }
+.snowball { border: 1px dashed var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 14px; }
+.snowball[hidden] { display: none; }
+.snowball-text { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+.snowball .search-controls { flex-wrap: wrap; margin-bottom: 0; }
+.snowball .inline select { width: auto; }
+#snowball-status { margin: 8px 0 0; }
+#snowball-status:empty { display: none; }
+.snowball-left-out { margin: 4px 0 0; padding-left: 18px; }

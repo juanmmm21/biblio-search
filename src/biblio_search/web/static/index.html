@@ -161,10 +161,30 @@
           <div class="search-controls" id="screening-exports" hidden>
             <a class="button small" href="/api/screening/export/ris?which=include" download>Included (.ris)</a>
             <a class="button small" href="/api/screening/export/csv?which=include" download>Included (.csv)</a>
-            <a class="button small" href="/api/screening/export/log" download>Search logs (.md)</a>
+            <a class="button small" href="/api/screening/export/log" download>Logs (.md)</a>
           </div>
         </div>
         <div id="flow"><p class="empty">Run a search and add its records to the screening. Every decision is saved as you make it, so you can stop and come back later.</p></div>
+        <div class="snowball" id="snowball" hidden>
+          <div class="snowball-text">
+            <strong>Snowballing</strong>
+            <span class="hint" id="snowball-hint"></span>
+          </div>
+          <div class="search-controls">
+            <label class="inline">Follow
+              <select id="snowball-direction">
+                <option value="">references and citations</option>
+                <option value="references">references only</option>
+                <option value="citations">citations only</option>
+              </select>
+            </label>
+            <label class="inline">Citing works per record
+              <input type="number" id="snowball-max" min="1" max="10000" value="100">
+            </label>
+            <button type="button" class="button" id="snowball-button">Snowball</button>
+          </div>
+          <p class="hint" id="snowball-status" role="status"></p>
+        </div>
         <div class="filters" id="screening-filters" role="group" aria-label="Show records"></div>
         <datalist id="reason-list"></datalist>
         <ol class="records screening-list" id="screening-list"></ol>

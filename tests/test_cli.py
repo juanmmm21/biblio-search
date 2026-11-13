@@ -8,7 +8,7 @@ from pathlib import Path
 
 import httpx
 import pytest
-from conftest import eric_fixture_for, load_fixture, mesh_fixture_for
+from conftest import eric_fixture_for, load_fixture, mesh_fixture_for, snowball_openalex
 from test_screening import _log, _record
 from test_tuning import CountingBackend
 
@@ -330,27 +330,8 @@ def test_search_adds_to_a_screening_and_screening_exports(
 
 
 def _patch_snowball(monkeypatch: pytest.MonkeyPatch, seen: list[httpx.Request]) -> None:
-    fixtures = {
-        "doi": "openalex_links_zarit.json",
-        "cites": "openalex_citing_zarit.json",
-        "ids.openalex": "openalex_references_zarit.json",
-    }
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(request)
-        kind = request.url.params["filter"].split(":", 1)[0]
-        return httpx.Response(200, json=load_fixture(fixtures[kind]))
-
-    async def no_wait(_: float) -> None:
-        return None
-
     def factory(config: OpenAlexConfig) -> OpenAlexClient:
-        return OpenAlexClient(
-            config,
-            transport=httpx.MockTransport(handler),
-            limiter=RateLimiter(1000, sleep=no_wait),
-            sleep=no_wait,
-        )
+        return snowball_openalex(seen)
 
     monkeypatch.setattr(cli, "OpenAlexClient", factory)
 

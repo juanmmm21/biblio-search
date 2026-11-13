@@ -33,6 +33,7 @@ from biblio_search.question_file import question_to_data
 from biblio_search.screening import AddedSearch, FlowSummary, ScreeningEntry
 from biblio_search.search_log import SearchLog
 from biblio_search.selection import DatabaseSelection, select_databases
+from biblio_search.snowball import SnowballRun
 from biblio_search.tuning import TuningReport
 
 JsonDict = dict[str, object]
@@ -245,6 +246,8 @@ def flow_view(summary: FlowSummary) -> JsonDict:
         "included": summary.included,
         "excluded": summary.excluded,
         "maybe": summary.maybe,
+        "snowball_rounds": summary.snowball_rounds,
+        "citation_identified": summary.citation_identified,
         "exclusion_reasons": [
             {"reason": reason, "count": count} for reason, count in summary.exclusion_reasons
         ],
@@ -283,4 +286,29 @@ def added_view(added: AddedSearch) -> JsonDict:
         "identified": added.identified,
         "new_records": added.new_records,
         "already_known": added.already_known,
+    }
+
+
+def snowball_view(run: SnowballRun) -> JsonDict:
+    """What a snowballing round followed, what it left out and how much it reached."""
+    return {
+        "directions": [direction.value for direction in run.directions],
+        "max_citing": run.max_citing,
+        "seeds": [
+            {
+                "id": seed.entry_id,
+                "title": seed.title,
+                "work_id": seed.work_id,
+                "references": seed.references,
+                "citing_total": seed.citing_total,
+                "citing_kept": seed.citing_kept,
+            }
+            for seed in run.seeds
+        ],
+        "unmatched": [
+            {"id": seed.entry_id, "title": seed.title, "reason": seed.reason}
+            for seed in run.unmatched
+        ],
+        "candidates": len(run.candidates),
+        "missing_references": run.missing_references,
     }

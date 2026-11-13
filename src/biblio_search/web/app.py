@@ -78,6 +78,14 @@ from biblio_search.screening import (
 )
 from biblio_search.search_log import SearchLog, build_log, render_log
 from biblio_search.selection import select_databases
+from biblio_search.snowball import (
+    ALL_DIRECTIONS,
+    DEFAULT_MAX_CITING,
+    MAX_CITING,
+    SnowballDirection,
+    SnowballSource,
+    snowball,
+)
 from biblio_search.tuning import tune
 from biblio_search.web.views import (
     added_view,
@@ -89,6 +97,7 @@ from biblio_search.web.views import (
     preview_view,
     record_view,
     selection_view,
+    snowball_view,
     tuning_view,
 )
 
@@ -138,6 +147,12 @@ class DraftRequest(BaseModel):
 
 class ScreenSearchRequest(BaseModel):
     search_id: str
+
+
+class SnowballRequest(BaseModel):
+    # None sigue las dos direcciones.
+    direction: SnowballDirection | None = None
+    max_citing: int = Field(default=DEFAULT_MAX_CITING, ge=1, le=MAX_CITING)
 
 
 class DecisionRequest(BaseModel):
@@ -431,6 +446,8 @@ def create_app(
             "file": str(screening_path),
             "flow": flow(store),
             "entries": [entry_view(entry) for entry in entries],
+            "to_snowball": len(store.to_snowball()) if store is not None else 0,
+            "can_snowball": isinstance(app.state.backends.get(Database.OPENALEX), SnowballSource),
         }
 
     @app.post("/api/screening/searches")
@@ -443,6 +460,22 @@ def create_app(
             raise ScreeningError(f"cannot open {screening_path}")
         added = store.add_search(log)
         return {"added": added_view(added), "flow": flow(store)}
+
+    @app.post("/api/screening/snowball")
+    async def snowball_round(body: SnowballRequest) -> dict[str, object]:
+        source = app.state.backends.get(Database.OPENALEX)
+        if not isinstance(source, SnowballSource):
+            raise ScreeningError("snowballing needs OpenAlex, and this interface has no client")
+        store = screening_to_write()
+        seeds = store.to_snowball()
+        if not seeds:
+            raise ScreeningError(
+                "no included record is waiting to be snowballed: include some records first"
+            )
+        directions = (body.direction,) if body.direction is not None else ALL_DIRECTIONS
+        run = await snowball(source, seeds, directions=directions, max_citing=body.max_citing)
+        added = store.add_snowball(run)
+        return {"added": added_view(added), "run": snowball_view(run), "flow": flow(store)}
 
     @app.post("/api/screening/records/{entry_id}")
     async def decide(entry_id: int, body: DecisionRequest) -> dict[str, object]:

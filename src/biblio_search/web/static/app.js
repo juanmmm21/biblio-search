@@ -910,8 +910,12 @@ function renderFlow(flow) {
   }
   const diagram = el("div", "flow");
   const top = el("div", "flow-row");
+  top.append(flowBox(`identified in ${flow.searches} ${flow.searches === 1 ? "search" : "searches"}`, flow.identified));
+  if (flow.snowball_rounds) {
+    const rounds = `${flow.snowball_rounds} snowballing ${flow.snowball_rounds === 1 ? "round" : "rounds"}`;
+    top.append(el("span", "flow-arrow", "+"), flowBox(`identified in ${rounds}`, flow.citation_identified));
+  }
   top.append(
-    flowBox(`identified in ${flow.searches} ${flow.searches === 1 ? "search" : "searches"}`, flow.identified),
     el("span", "flow-arrow", "→"),
     flowBox("duplicates removed", flow.duplicates, "muted"),
     el("span", "flow-arrow", "→"),
@@ -992,8 +996,53 @@ async function decide(id, decision, reason, actions) {
   }
 }
 
+// --- Bola de nieve: referencias y citas de los incluidos, vía OpenAlex ---
+
+function renderSnowball(payload) {
+  const box = $("snowball");
+  box.hidden = !payload.flow.included || !payload.can_snowball;
+  const waiting = payload.to_snowball;
+  $("snowball-hint").textContent = waiting
+    ? (waiting === 1
+      ? "1 included record has not been followed yet: its references and the works citing it become new records to screen."
+      : `${formatCount(waiting)} included records have not been followed yet: their references and the works citing them become new records to screen.`)
+    : "Every included record has been followed. Include more records to snowball again.";
+  $("snowball-button").disabled = !waiting;
+}
+
+function snowballSummary(added, run) {
+  const parts = [`Round ${added.search_number}: followed ${formatCount(run.seeds.length)} included ${run.seeds.length === 1 ? "record" : "records"}, reached ${formatCount(run.candidates)} works, ${formatCount(added.new_records)} new to screen, ${formatCount(added.already_known)} already in the screening.`];
+  if (run.missing_references) parts.push(`${formatCount(run.missing_references)} references are no longer in OpenAlex.`);
+  return parts.join(" ");
+}
+
+async function runSnowball() {
+  const button = $("snowball-button");
+  const status = $("snowball-status");
+  button.disabled = true;
+  status.replaceChildren("Asking OpenAlex for references and citations (about one request per second)…");
+  try {
+    const body = { max_citing: Number($("snowball-max").value) || 100 };
+    const direction = $("snowball-direction").value;
+    if (direction) body.direction = direction;
+    const { added, run } = await postJson("/api/screening/snowball", body);
+    status.replaceChildren(snowballSummary(added, run));
+    if (run.unmatched.length) {
+      const leftOut = el("ul", "snowball-left-out");
+      leftOut.append(...run.unmatched.map((u) => el("li", null, `Left out: ${u.title || "(no title)"} (${u.reason})`)));
+      status.append(leftOut);
+    }
+    screeningFilter = "pending";
+    await loadScreening();
+  } catch (error) {
+    button.disabled = false;
+    status.replaceChildren(el("span", "banner error", `Snowballing failed: ${error.message}`));
+  }
+}
+
 function renderScreening(payload) {
   const { flow, entries } = payload;
+  renderSnowball(payload);
   $("screening-file").textContent = payload.file ? `saved in ${payload.file}` : "";
   $("screening-exports").hidden = !flow.screened;
   $("flow").replaceChildren(renderFlow(flow));
@@ -1210,6 +1259,7 @@ async function init() {
     if (file) importFile(file);
     e.target.value = "";
   });
+  $("snowball-button").addEventListener("click", runSnowball);
   renderForm();
   loadScreening();
   try {

@@ -8,8 +8,9 @@ from pathlib import Path
 
 import httpx
 import pytest
-from conftest import FIXTURES, eric_fixture_for, load_fixture, mesh_fixture_for
+from conftest import FIXTURES, eric_fixture_for, load_fixture, mesh_fixture_for, snowball_openalex
 from fastapi.testclient import TestClient
+from test_screening import _log, _record
 
 import biblio_search.web as web
 from biblio_search import openalex
@@ -23,6 +24,7 @@ from biblio_search.models import ArticleSummary, Database, SearchResult
 from biblio_search.openalex import OpenAlexError
 from biblio_search.pipeline import SearchBackend
 from biblio_search.ratelimit import RateLimiter
+from biblio_search.screening import Decision, ScreeningStore
 from biblio_search.web.app import KEPT_SEARCHES, BackendFactory, NcbiClient, create_app
 from biblio_search.web.server import bind_local
 
@@ -535,6 +537,63 @@ def test_screening_needs_a_kept_search_and_a_file(tmp_path: Path) -> None:
         off = test_client.post("/api/screening/searches", json={"search_id": search_id})
     assert missing.status_code == 404
     assert off.status_code == 409 and "without a screening file" in off.json()["error"]
+
+
+def test_snowballing_adds_a_round_to_the_screening(tmp_path: Path) -> None:
+    path = tmp_path / "screening.sqlite"
+    with ScreeningStore.open(path) as store:
+        store.add_search(_log([_record("7203086", doi="10.1093/geront/20.6.649")]))
+        (seed,) = store.entries()
+    seen: list[httpx.Request] = []
+    with make_client(screening=path, other=snowball_openalex(seen)) as test_client:
+        nothing = test_client.post("/api/screening/snowball", json={})
+        test_client.post(f"/api/screening/records/{seed.entry_id}", json={"decision": "include"})
+        before = test_client.get("/api/screening").json()
+        too_many = test_client.post("/api/screening/snowball", json={"max_citing": 10_001})
+        done = test_client.post(
+            "/api/screening/snowball", json={"direction": "citations", "max_citing": 3}
+        )
+        after = test_client.get("/api/screening").json()
+        logs = test_client.get("/api/screening/export/log")
+    assert nothing.status_code == 409 and "include some records" in nothing.json()["error"]
+    assert (before["to_snowball"], before["can_snowball"]) == (1, True)
+    assert too_many.status_code == 422
+    body = done.json()
+    assert body["added"] == {
+        "search_number": 1,
+        "identified": 3,
+        "new_records": 3,
+        "already_known": 0,
+    }
+    assert body["run"]["directions"] == ["citations"]
+    assert body["run"]["seeds"] == [
+        {
+            "id": seed.entry_id,
+            "title": "A study",
+            "work_id": "W2130900065",
+            "references": 0,
+            "citing_total": 5968,
+            "citing_kept": 3,
+        }
+    ]
+    assert body["run"]["unmatched"] == [] and body["run"]["candidates"] == 3
+    assert body["flow"]["snowball_rounds"] == 1 and body["flow"]["citation_identified"] == 3
+    assert after["to_snowball"] == 0 and after["flow"]["pending"] == 3
+    assert [r.url.params["filter"].split(":")[0] for r in seen] == ["doi", "cites"]
+    assert "# Snowballing log" in logs.text
+
+
+def test_snowballing_needs_an_openalex_client(tmp_path: Path) -> None:
+    path = tmp_path / "screening.sqlite"
+    with ScreeningStore.open(path) as store:
+        store.add_search(_log([_record("1", doi="10.1/a")]))
+        (seed,) = store.entries()
+        store.decide(seed.entry_id, Decision.INCLUDE)
+    with make_client(screening=path) as test_client:
+        state = test_client.get("/api/screening").json()
+        refused = test_client.post("/api/screening/snowball", json={})
+    assert state["can_snowball"] is False
+    assert refused.status_code == 409 and "needs OpenAlex" in refused.json()["error"]
 
 
 def test_a_foreign_file_is_reported_as_a_screening_error(tmp_path: Path) -> None:

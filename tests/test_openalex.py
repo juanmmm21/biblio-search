@@ -229,8 +229,9 @@ ZARIT = "W2130900065"
 
 
 def test_parse_links_fixture() -> None:
-    (work,) = load_fixture("openalex_links_zarit.json")["results"]  # type: ignore[misc]
-    links = parse_links(work)
+    works = load_fixture("openalex_links_zarit.json")["results"]
+    assert isinstance(works, list) and len(works) == 1
+    links = parse_links(works[0])
     assert links.work_id == ZARIT
     assert links.doi == "10.1093/geront/20.6.649"
     assert links.pmid == "7203086"

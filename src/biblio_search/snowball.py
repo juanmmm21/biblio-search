@@ -13,7 +13,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from biblio_search import __version__
 from biblio_search.merge import MergedRecord, MergedResults, RecordSource, normalize_doi
@@ -38,6 +38,7 @@ class SnowballDirection(StrEnum):
 ALL_DIRECTIONS = (SnowballDirection.REFERENCES, SnowballDirection.CITATIONS)
 
 
+@runtime_checkable
 class SnowballSource(Protocol):
     """What snowballing needs from OpenAlex."""
 
