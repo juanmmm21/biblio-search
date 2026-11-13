@@ -207,6 +207,36 @@ def test_question_rejects_repeated_databases() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    "category", ["cs.LG", "quant-ph", "cond-mat.str-el", "q-fin.ST", "math.*", "physics.bio-ph"]
+)
+def test_question_accepts_arxiv_categories(category: str) -> None:
+    question = StructuredQuestion(
+        "q", QuestionFormat.CONCEPTS, (_concept("x", Term.free("x")),), arxiv_categories=(category,)
+    )
+    assert question.arxiv_categories == (category,)
+
+
+@pytest.mark.parametrize(
+    ("categories", "message"),
+    [
+        (("cs LG",), "not an arXiv category"),
+        (("cs.LG OR ti:x",), "not an arXiv category"),
+        (("CS.LG",), "not an arXiv category"),
+        (("",), "not an arXiv category"),
+        (("cs.LG", "cs.LG"), "category can be given only once"),
+    ],
+)
+def test_question_rejects_bad_arxiv_categories(categories: tuple[str, ...], message: str) -> None:
+    with pytest.raises(QuestionError, match=message):
+        StructuredQuestion(
+            "q",
+            QuestionFormat.CONCEPTS,
+            (_concept("x", Term.free("x")),),
+            arxiv_categories=categories,
+        )
+
+
 def test_question_lists_controlled_terms_of_conditions_and_exclusions() -> None:
     animals = Term.controlled("Animals")
     question = StructuredQuestion(

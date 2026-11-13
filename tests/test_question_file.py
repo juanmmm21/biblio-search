@@ -74,6 +74,9 @@ def _with(**changes: object) -> dict[str, object]:
         (_with(databases="pubmed"), "databases must be a list"),
         (_with(databases=["scopus"]), r"databases\[0\] must be one of: pubmed, eric"),
         (_with(databases=["eric", "eric"]), "database can be chosen only once"),
+        (_with(arxiv_categories="cs.LG"), "arxiv_categories must be a list"),
+        (_with(arxiv_categories=[1]), r"arxiv_categories\[0\] must be a string"),
+        (_with(arxiv_categories=["cs LG"]), "not an arXiv category"),
         (
             _with(
                 components=[
@@ -154,7 +157,16 @@ def test_files_without_new_fields_keep_their_meaning() -> None:
     question, _ = parse_question(MINIMAL)
     assert question.discipline is None
     assert question.databases == ()
+    assert question.arxiv_categories == ()
     assert question.conditions[0].terms[0].vocabulary is Vocabulary.MESH
+
+
+def test_arxiv_categories_survive_a_round_trip() -> None:
+    question, options = parse_question(_with(arxiv_categories=["quant-ph", "cs.*"]))
+    assert question.arxiv_categories == ("quant-ph", "cs.*")
+    data = question_to_data(question, options)
+    assert data["arxiv_categories"] == ["quant-ph", "cs.*"]
+    assert parse_question_text(dump_question(question, options))[0] == question
 
 
 def test_load_education_example() -> None:
@@ -209,6 +221,7 @@ def test_question_to_data_omits_defaults() -> None:
     assert data["exclusions"] == [{"label": "animals", "controlled": ["Animals"]}]
     assert "discipline" not in data
     assert "databases" not in data
+    assert "arxiv_categories" not in data
 
 
 def test_question_to_data_keeps_discipline_databases_and_vocabularies() -> None:

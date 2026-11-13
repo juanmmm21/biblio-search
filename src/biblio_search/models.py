@@ -118,6 +118,9 @@ TRUNCATION = "*"
 _BOOLEAN_WORD = re.compile(r"\b(?:AND|OR|NOT)\b", re.IGNORECASE)
 # Las comillas y los corchetes rompen la sintaxis de PubMed: no hay forma de escaparlos.
 _FORBIDDEN_CHARS = frozenset('"[]')
+# Categorías de arXiv: archivo con guiones y subcategoría opcional, o todo el archivo con «.*»
+# (cs.LG, quant-ph, cond-mat.str-el, q-fin.ST, math.*).
+_ARXIV_CATEGORY = re.compile(r"^[a-z]+(?:-[a-z]+)*(?:\.(?:[A-Za-z]+(?:-[a-z]+)*|\*))?$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -238,7 +241,8 @@ class StructuredQuestion:
     """A search question decomposed into the components of its format.
 
     ``discipline`` helps choose the databases automatically; ``databases`` chooses them by
-    hand and, when given, overrides that choice.
+    hand and, when given, overrides that choice. ``arxiv_categories`` (e.g. ``cs.LG`` or
+    ``math.*``) restrict the search in arXiv only.
     """
 
     text: str
@@ -247,6 +251,7 @@ class StructuredQuestion:
     exclusions: tuple[Condition, ...] = field(default=())
     discipline: Discipline | None = None
     databases: tuple[Database, ...] = ()
+    arxiv_categories: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.text.strip():
@@ -263,6 +268,13 @@ class StructuredQuestion:
             raise QuestionError("each component role can appear only once")
         if len(set(self.databases)) != len(self.databases):
             raise QuestionError("each database can be chosen only once")
+        for category in self.arxiv_categories:
+            if not _ARXIV_CATEGORY.match(category):
+                raise QuestionError(
+                    f"{category!r} is not an arXiv category (e.g. cs.LG, quant-ph or math.*)"
+                )
+        if len(set(self.arxiv_categories)) != len(self.arxiv_categories):
+            raise QuestionError("each arXiv category can be given only once")
         if not self.conditions:
             raise QuestionError("the question needs at least one condition to search for")
 

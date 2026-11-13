@@ -141,6 +141,7 @@ def parse_question(data: Mapping[str, object]) -> tuple[StructuredQuestion, Stra
     exclusions = _list(data.get("exclusions", []), "exclusions")
     discipline = data.get("discipline")
     databases = _list(data.get("databases", []), "databases")
+    categories = _list(data.get("arxiv_categories", []), "arxiv_categories")
     question = StructuredQuestion(
         text=_string(data.get("question"), "question"),
         format=question_format,
@@ -152,6 +153,9 @@ def parse_question(data: Mapping[str, object]) -> tuple[StructuredQuestion, Stra
         discipline=None if discipline is None else _choice(Discipline, discipline, "discipline"),
         databases=tuple(
             _choice(Database, item, f"databases[{i}]") for i, item in enumerate(databases)
+        ),
+        arxiv_categories=tuple(
+            _string(item, f"arxiv_categories[{i}]") for i, item in enumerate(categories)
         ),
     )
     return question, _options(data.get("options", {}))
@@ -208,6 +212,8 @@ def question_to_data(question: StructuredQuestion, options: StrategyOptions) -> 
         data["discipline"] = question.discipline.value
     if question.databases:
         data["databases"] = [database.value for database in question.databases]
+    if question.arxiv_categories:
+        data["arxiv_categories"] = list(question.arxiv_categories)
     components: list[dict[str, object]] = []
     for component in question.components:
         item: dict[str, object] = {}
