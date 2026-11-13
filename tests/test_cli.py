@@ -9,6 +9,7 @@ from pathlib import Path
 import httpx
 import pytest
 from conftest import eric_fixture_for, load_fixture, mesh_fixture_for
+from test_screening import _log, _record
 from test_tuning import CountingBackend
 
 import biblio_search.__main__ as cli
@@ -326,6 +327,69 @@ def test_search_adds_to_a_screening_and_screening_exports(
     assert "    not caregivers: 1" in out and f"RIS (include) written to {ris}" in out
     assert ris.read_bytes().count(b"ER  - \r\n") == 1
     assert logs.read_text(encoding="utf-8").count("# Search log") == 2
+
+
+def _patch_snowball(monkeypatch: pytest.MonkeyPatch, seen: list[httpx.Request]) -> None:
+    fixtures = {
+        "doi": "openalex_links_zarit.json",
+        "cites": "openalex_citing_zarit.json",
+        "ids.openalex": "openalex_references_zarit.json",
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        kind = request.url.params["filter"].split(":", 1)[0]
+        return httpx.Response(200, json=load_fixture(fixtures[kind]))
+
+    async def no_wait(_: float) -> None:
+        return None
+
+    def factory(config: OpenAlexConfig) -> OpenAlexClient:
+        return OpenAlexClient(
+            config,
+            transport=httpx.MockTransport(handler),
+            limiter=RateLimiter(1000, sleep=no_wait),
+            sleep=no_wait,
+        )
+
+    monkeypatch.setattr(cli, "OpenAlexClient", factory)
+
+
+def test_snowball_adds_references_and_citations(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    seen: list[httpx.Request] = []
+    _patch_snowball(monkeypatch, seen)
+    screening = tmp_path / "screening.sqlite"
+    with ScreeningStore.open(screening) as store:
+        store.add_search(_log([_record("7203086", doi="10.1093/geront/20.6.649", pmid="7203086")]))
+        (seed,) = store.entries()
+    assert main(["snowball", str(screening)]) == 1
+    assert "no included record is waiting" in capsys.readouterr().err
+    with ScreeningStore.open(screening) as store:
+        store.decide(seed.entry_id, Decision.INCLUDE)
+
+    assert main(["snowball", str(screening), "--max-citing", "3"]) == 0
+    out = capsys.readouterr().out
+    assert "(W2130900065): 25 references, 3 of 5,968 citing works" in out
+    assert "- Candidates reached: 6" in out
+    assert "- References OpenAlex no longer has (merged or withdrawn): 22" in out
+    assert f"snowballing round 1 added to {screening}, 6 new records, 0 already there" in out
+    assert [r.url.params["filter"].split(":")[0] for r in seen] == [
+        "doi",
+        "cites",
+        "ids.openalex",
+    ]
+    assert seen[1].url.params["per_page"] == "3"
+    assert main(["screening", str(screening)]) == 0
+    assert "Records identified by snowballing: 6" in capsys.readouterr().out
+    # El registro ya seguido no vuelve a ser punto de partida.
+    assert main(["snowball", str(screening)]) == 1
+    capsys.readouterr()
+    with pytest.raises(SystemExit):
+        main(["snowball", str(screening), "--direction", "sideways"])
+    assert main(["snowball", str(tmp_path / "none.sqlite")]) == 1
+    assert "does not exist" in capsys.readouterr().err
 
 
 def test_screening_needs_an_existing_file(

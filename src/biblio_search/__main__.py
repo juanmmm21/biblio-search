@@ -82,6 +82,15 @@ from biblio_search.screening import (
 )
 from biblio_search.search_log import SearchLog, build_log, render_log
 from biblio_search.selection import DatabaseSelection, SelectionMode, select_databases
+from biblio_search.snowball import (
+    ALL_DIRECTIONS,
+    DEFAULT_MAX_CITING,
+    MAX_CITING,
+    SnowballDirection,
+    SnowballRun,
+    render_snowball,
+    snowball,
+)
 from biblio_search.tuning import SCREENING_WINDOW, Direction, TuningReport, tune
 
 
@@ -89,6 +98,13 @@ def _max_records(value: str) -> int:
     number = int(value)
     if not 0 <= number <= MAX_RETMAX:
         raise argparse.ArgumentTypeError(f"must be between 0 and {MAX_RETMAX}")
+    return number
+
+
+def _max_citing(value: str) -> int:
+    number = int(value)
+    if not 1 <= number <= MAX_CITING:
+        raise argparse.ArgumentTypeError(f"must be between 1 and {MAX_CITING}")
     return number
 
 
@@ -228,6 +244,24 @@ def _build_parser() -> argparse.ArgumentParser:
     screening.add_argument("--csv", type=Path, help="write the chosen records as CSV")
     screening.add_argument(
         "--log", type=Path, help="write the logs of every search added to the screening"
+    )
+
+    snowball_parser = commands.add_parser(
+        "snowball",
+        help="add the references and citations of the included records to the screening "
+        "(through OpenAlex)",
+    )
+    snowball_parser.add_argument("screening_file", type=Path, help="screening file (SQLite)")
+    snowball_parser.add_argument(
+        "--direction",
+        choices=[direction.value for direction in SnowballDirection],
+        help="follow only the references or only the citations (default: both)",
+    )
+    snowball_parser.add_argument(
+        "--max-citing",
+        type=_max_citing,
+        default=DEFAULT_MAX_CITING,
+        help=f"citing works to keep per record, most cited first (default: {DEFAULT_MAX_CITING})",
     )
 
     ui = commands.add_parser(
@@ -606,6 +640,32 @@ def _screening(args: argparse.Namespace) -> list[str]:
     return lines
 
 
+async def _snowball(args: argparse.Namespace, store: ScreeningStore) -> SnowballRun:
+    seeds = store.to_snowball()
+    if not seeds:
+        raise ScreeningError(
+            "no included record is waiting to be snowballed: include some records first "
+            "(every record already followed is left out)"
+        )
+    directions = (SnowballDirection(args.direction),) if args.direction else ALL_DIRECTIONS
+    async with OpenAlexClient(OpenAlexConfig.from_env()) as client:
+        return await snowball(client, seeds, directions=directions, max_citing=args.max_citing)
+
+
+def _snowball_command(args: argparse.Namespace) -> list[str]:
+    path: Path = args.screening_file
+    if not path.exists():
+        raise ScreeningError(f"{path} does not exist; add a search with search --screening")
+    with ScreeningStore.open(path) as store:
+        run = asyncio.run(_snowball(args, store))
+        added = store.add_snowball(run)
+    return [
+        render_snowball(run).rstrip("\n"),
+        f"Screening: snowballing round {added.search_number} added to {path}, "
+        f"{added.new_records:,} new records, {added.already_known:,} already there",
+    ]
+
+
 _DIRECTION_LABELS = {Direction.SENSITIVE: "more sensitive", Direction.SPECIFIC: "more specific"}
 
 
@@ -659,6 +719,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _ui(args)
         if args.command == "screening":
             print("\n".join(_screening(args)))
+            return 0
+        if args.command == "snowball":
+            print("\n\n".join(_snowball_command(args)))
             return 0
         if args.command == "decs":
             text = " ".join(args.words)
