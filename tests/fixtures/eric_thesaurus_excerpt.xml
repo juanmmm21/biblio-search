@@ -1,0 +1,208 @@
+<?xml version='1.0' encoding='utf-8'?>
+<Nstein>
+  <Taxonomy>
+    <AttributeDefs>
+      <AttributeDef name="RecType" type="single line text area" />
+      <AttributeDef name="Active" type="drop down menu">
+        <PossibleValue>False</PossibleValue>
+        <PossibleValue>True</PossibleValue>
+        <PossibleValue>Unknown</PossibleValue>
+      </AttributeDef>
+      <AttributeDef name="Status" type="single line text area" />
+      <AttributeDef name="GroupCode" type="single line text area" />
+      <AttributeDef name="ScopeNote" type="multi line text area" />
+      <AttributeDef name="UFA" type="multi line text area" />
+      <AttributeDef name="USEAND" type="multi line text area" />
+      <AttributeDef name="LastChangeDate" type="single line text area" />
+      <AttributeDef name="AddDate" type="single line text area" />
+      <AttributeDef name="BirthDate" type="single line text area" />
+      <AttributeDef name="DeathDate" type="single line text area" />
+      <AttributeDef name="Refnum" type="single line text area" />
+    </AttributeDefs>
+  </Taxonomy>
+  <Terms>
+    <Term>
+      <Name>American Culture (1966 1980)</Name>
+      <Variations>
+        <Variation language="2">American Culture (1966 1980)</Variation>
+      </Variations>
+      <Attributes>
+        <Attribute name="GroupCode">560 Peoples and Cultures</Attribute>
+        <Attribute name="RecType">Dead</Attribute>
+        <Attribute name="ScopeNote">Invalid Descriptor -- used for North, South, Central American culture -- see "Culture" or "Latin American Culture"</Attribute>
+        <Attribute name="AddDate">1980-03-05</Attribute>
+      </Attributes>
+      <Relationships />
+    </Term>
+    <Term>
+      <Name>Elementary School Students</Name>
+      <Variations>
+        <Variation language="2">Elementary School Students</Variation>
+      </Variations>
+      <Attributes>
+        <Attribute name="GroupCode">360 Students, Teachers, School Personnel</Attribute>
+        <Attribute name="RecType">Main</Attribute>
+        <Attribute name="ScopeNote">(Note: Coordinate with the appropriate mandatory educational level Descriptor)</Attribute>
+        <Attribute name="AddDate">1966-07-01</Attribute>
+      </Attributes>
+      <Relationships>
+        <Relationship type="UF">
+          <Is>Elementary School Children</Is>
+          <Is>Primary School Students</Is>
+        </Relationship>
+        <Relationship type="BT">
+          <Is>Students</Is>
+        </Relationship>
+        <Relationship type="RT">
+          <Is>Children</Is>
+          <Is>Elementary Education</Is>
+          <Is>Elementary Schools</Is>
+          <Is>Middle School Students</Is>
+        </Relationship>
+      </Relationships>
+    </Term>
+    <Term>
+      <Name>Peer Teaching</Name>
+      <Variations>
+        <Variation language="2">Peer Teaching</Variation>
+      </Variations>
+      <Attributes>
+        <Attribute name="GroupCode">310 Educational Process: Classroom Perspectives</Attribute>
+        <Attribute name="RecType">Main</Attribute>
+        <Attribute name="ScopeNote">Practice in which students take on a teaching role in a school setting in order to share their knowledge with other students</Attribute>
+        <Attribute name="AddDate">1966-07-01</Attribute>
+      </Attributes>
+      <Relationships>
+        <Relationship type="UF">
+          <Is>Peer Tutoring</Is>
+        </Relationship>
+        <Relationship type="BT">
+          <Is>Teaching Methods</Is>
+        </Relationship>
+        <Relationship type="RT">
+          <Is>Cooperative Learning</Is>
+          <Is>Cross Age Teaching</Is>
+          <Is>Peer Influence</Is>
+          <Is>Peer Relationship</Is>
+          <Is>Reciprocal Teaching</Is>
+          <Is>Tutorial Programs</Is>
+          <Is>Tutoring</Is>
+        </Relationship>
+      </Relationships>
+    </Term>
+    <Term>
+      <Name>Peer Tutoring</Name>
+      <Variations>
+        <Variation language="2">Peer Tutoring</Variation>
+      </Variations>
+      <Attributes>
+        <Attribute name="RecType">Synonym</Attribute>
+        <Attribute name="AddDate">1988-01-19</Attribute>
+      </Attributes>
+      <Relationships>
+        <Relationship type="U">
+          <Is>Peer Teaching</Is>
+          <Is>Tutoring</Is>
+        </Relationship>
+      </Relationships>
+    </Term>
+    <Term>
+      <Name>Reading Comprehension</Name>
+      <Variations>
+        <Variation language="2">Reading Comprehension</Variation>
+      </Variations>
+      <Attributes>
+        <Attribute name="GroupCode">460 Reading</Attribute>
+        <Attribute name="RecType">Main</Attribute>
+        <Attribute name="AddDate">1966-07-01</Attribute>
+      </Attributes>
+      <Relationships>
+        <Relationship type="BT">
+          <Is>Comprehension</Is>
+          <Is>Reading Skills</Is>
+        </Relationship>
+        <Relationship type="RT">
+          <Is>Basic Vocabulary</Is>
+          <Is>Cloze Procedure</Is>
+          <Is>Content Area Reading</Is>
+          <Is>Critical Reading</Is>
+          <Is>Decoding (Reading)</Is>
+          <Is>Directed Reading Activity</Is>
+          <Is>Informal Reading Inventories</Is>
+          <Is>Language Experience Approach</Is>
+          <Is>Oral Interpretation</Is>
+          <Is>Phonemic Awareness</Is>
+          <Is>Phonological Awareness</Is>
+          <Is>Readability</Is>
+          <Is>Readability Formulas</Is>
+          <Is>Reader Response</Is>
+          <Is>Reader Text Relationship</Is>
+          <Is>Reading</Is>
+          <Is>Reading Fluency</Is>
+          <Is>Reading Habits</Is>
+          <Is>Reading Processes</Is>
+          <Is>Reading Rate</Is>
+          <Is>Reading Strategies</Is>
+          <Is>Reading Tests</Is>
+          <Is>Receptive Language</Is>
+          <Is>Reciprocal Teaching</Is>
+          <Is>Story Grammar</Is>
+          <Is>Text Structure</Is>
+          <Is>Word Recognition</Is>
+        </Relationship>
+      </Relationships>
+    </Term>
+    <Term>
+      <Name>Tutorial Instruction</Name>
+      <Variations>
+        <Variation language="2">Tutorial Instruction</Variation>
+      </Variations>
+      <Attributes>
+        <Attribute name="RecType">Synonym</Attribute>
+        <Attribute name="AddDate">1966-07-01</Attribute>
+      </Attributes>
+      <Relationships>
+        <Relationship type="U">
+          <Is>Tutoring</Is>
+        </Relationship>
+      </Relationships>
+    </Term>
+    <Term>
+      <Name>Tutoring</Name>
+      <Variations>
+        <Variation language="2">Tutoring</Variation>
+      </Variations>
+      <Attributes>
+        <Attribute name="GroupCode">310 Educational Process: Classroom Perspectives</Attribute>
+        <Attribute name="RecType">Main</Attribute>
+        <Attribute name="ScopeNote">Instruction provided to a learner, or small group of learners, by direct interaction with a professional teacher, a peer, or another individual with appropriate training or experience</Attribute>
+        <Attribute name="AddDate">1966-07-01</Attribute>
+      </Attributes>
+      <Relationships>
+        <Relationship type="UF">
+          <Is>After School Tutoring (1966 1980)</Is>
+          <Is>Peer Tutoring</Is>
+          <Is>Tutorial Instruction</Is>
+        </Relationship>
+        <Relationship type="BT">
+          <Is>Individual Instruction</Is>
+        </Relationship>
+        <Relationship type="NT">
+          <Is>Programmed Tutoring</Is>
+        </Relationship>
+        <Relationship type="RT">
+          <Is>Academic Support Services</Is>
+          <Is>Cross Age Teaching</Is>
+          <Is>Peer Teaching</Is>
+          <Is>Remedial Instruction</Is>
+          <Is>Review (Reexamination)</Is>
+          <Is>Scaffolding (Teaching Technique)</Is>
+          <Is>Test Coaching</Is>
+          <Is>Tutor Training</Is>
+          <Is>Tutorial Programs</Is>
+          <Is>Tutors</Is>
+        </Relationship>
+      </Relationships>
+    </Term>
+  </Terms>
+</Nstein>

@@ -26,6 +26,7 @@ def _no_network(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(socket, "create_connection", refuse)
     # La clave de DeCS de quien ejecuta los tests no debe cambiar lo que comprueban.
     monkeypatch.delenv("DECS_API_KEY", raising=False)
+    monkeypatch.delenv("ERIC_THESAURUS", raising=False)
 
 
 MESH_SEARCH_FIXTURES = {
@@ -48,3 +49,28 @@ def mesh_fixture_for(endpoint: str, params: Mapping[str, str]) -> Mapping[str, o
     assert endpoint == "esearch.fcgi"
     name = MESH_SEARCH_FIXTURES.get(params["term"].casefold(), "mesh_esearch_not_found.json")
     return load_fixture(name)
+
+
+ERIC_SEARCH_FIXTURES = {
+    'subject:"peer teaching"': "eric_subject_peer_teaching.json",
+    'subject_ss:"Peer Teaching"': "eric_count_peer_teaching.json",
+    'subject:"peer tutoring"': "eric_subject_peer_tutoring.json",
+    'subject_ss:"Peer Tutoring"': "eric_count_peer_tutoring.json",
+}
+
+
+def eric_fixture_for(search: str) -> str:
+    """Name of the recorded ERIC answer for ``search``.
+
+    Descriptors other than Peer Teaching and Peer Tutoring are not in ERIC; an ``id:`` query
+    gets the id list and anything else the search of the education example.
+    """
+    # El campo por palabras no distingue mayúsculas; subject_ss sí.
+    key = search.casefold() if search.startswith("subject:") else search
+    if key in ERIC_SEARCH_FIXTURES:
+        return ERIC_SEARCH_FIXTURES[key]
+    if search.startswith("subject:"):
+        return "eric_subject_not_found.json"
+    if search.startswith("id:"):
+        return "eric_id_list.json"
+    return "eric_search_peer_tutoring.json"
