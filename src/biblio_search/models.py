@@ -357,6 +357,9 @@ class ThesaurusEntry:
     the no-explode scopes only make a difference when it is true. ``translated_from`` names
     the thesaurus that led to the heading from a text in another language (``"decs"`` for a
     Spanish term), and is empty when the text was found in the thesaurus itself.
+    ``identifier`` is empty in thesauri without one (ERIC). ``use_with`` lists the other
+    headings the thesaurus says to combine with this one for the text that led to it (ERIC
+    sends «Peer Tutoring» to «Peer Teaching» and «Tutoring» together).
     """
 
     vocabulary: str
@@ -366,6 +369,7 @@ class ThesaurusEntry:
     has_narrower: bool = False
     scope_note: str = ""
     translated_from: str = ""
+    use_with: tuple[str, ...] = ()
 
 
 class TermStatus(StrEnum):

@@ -9,6 +9,7 @@ headings of other vocabularies are left as they are and listed as unchecked.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 
 from biblio_search.models import (
@@ -123,6 +124,12 @@ def scope_note(check: TermCheck) -> str | None:
     """Explain what the chosen scope does for this heading, when it is worth saying."""
     if check.entry is None:
         return None
+    if check.entry.use_with:
+        others = " and ".join(check.entry.use_with)
+        return f"the thesaurus pairs this term with {others} too; add it if it fits the question"
+    # Solo MeSH explota los descriptores; en ERIC el alcance no cambia nada (lo dice el dialecto).
+    if check.entry.vocabulary != Vocabulary.MESH:
+        return None
     if check.term.scope in _NO_EXPLODE and not check.entry.has_narrower:
         return "has no narrower headings, so no_explode changes nothing"
     if check.term.scope not in _NO_EXPLODE and check.entry.has_narrower:
@@ -162,3 +169,36 @@ def apply_check(question: StructuredQuestion, result: QuestionCheck) -> Structur
     )
     exclusions = tuple(_fixed_condition(cond, checks) for cond in question.exclusions)
     return replace(question, components=components, exclusions=exclusions)
+
+
+def vocabularies_to_check(question: StructuredQuestion) -> tuple[Vocabulary, ...]:
+    """The thesauri the controlled terms of ``question`` come from, MeSH first.
+
+    A question without headings is still checked against MeSH, so the report can say so.
+    """
+    used = {term.vocabulary for term in question.controlled_terms}
+    found = tuple(vocabulary for vocabulary in Vocabulary if vocabulary in used)
+    return found or (Vocabulary.MESH,)
+
+
+async def check_all(
+    question: StructuredQuestion, thesauri: Sequence[Thesaurus]
+) -> tuple[QuestionCheck, ...]:
+    """Check ``question`` against every thesaurus; only headings none of them knows stay
+    listed as unchecked."""
+    names = {thesaurus.name for thesaurus in thesauri}
+    results: list[QuestionCheck] = []
+    for thesaurus in thesauri:
+        result = await check_question(question, thesaurus)
+        unchecked = tuple(t for t in result.unchecked if t.vocabulary not in names)
+        results.append(replace(result, unchecked=unchecked))
+    return tuple(results)
+
+
+def apply_checks(
+    question: StructuredQuestion, results: Sequence[QuestionCheck]
+) -> StructuredQuestion:
+    """Apply the outcome of several checks, one thesaurus after another."""
+    for result in results:
+        question = apply_check(question, result)
+    return question

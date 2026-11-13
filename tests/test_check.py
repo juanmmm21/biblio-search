@@ -5,7 +5,15 @@ from collections.abc import Mapping, Sequence
 
 import pytest
 
-from biblio_search.check import QuestionCheck, apply_check, check_question, scope_note
+from biblio_search.check import (
+    QuestionCheck,
+    apply_check,
+    apply_checks,
+    check_all,
+    check_question,
+    scope_note,
+    vocabularies_to_check,
+)
 from biblio_search.models import (
     Component,
     ComponentRole,
@@ -203,3 +211,61 @@ def test_spanish_term_found_through_decs_is_translated_and_renamed() -> None:
     assert not result.all_valid
     fixed = apply_check(question, result)
     assert fixed.conditions[0].terms == (Term.controlled("Caregivers"), Term.free("carer*"))
+
+
+def _concepts(*terms: Term) -> StructuredQuestion:
+    return StructuredQuestion(
+        text="q",
+        format=QuestionFormat.CONCEPTS,
+        components=(Component(ComponentRole.CONCEPT, "c", (Condition("c", terms),)),),
+    )
+
+
+def test_vocabularies_to_check_lists_mesh_first_and_defaults_to_it() -> None:
+    eric = Term.controlled("Tutoring", vocabulary=Vocabulary.ERIC)
+    assert vocabularies_to_check(_concepts(eric)) == (Vocabulary.ERIC,)
+    both = _concepts(eric, Term.controlled("Anxiety"))
+    assert vocabularies_to_check(both) == (Vocabulary.MESH, Vocabulary.ERIC)
+    assert vocabularies_to_check(_concepts(Term.free("tutor*"))) == (Vocabulary.MESH,)
+
+
+def test_scope_note_only_speaks_of_explosion_for_mesh() -> None:
+    term = Term.controlled("Tutoring", ControlledScope.HEADING_NO_EXPLODE, Vocabulary.ERIC)
+    entry = ThesaurusEntry("eric", "", "Tutoring")
+    assert scope_note(TermCheck("c", term, TermStatus.VALID, entry)) is None
+
+
+class _Fixed:
+    """A thesaurus that knows a fixed set of headings."""
+
+    def __init__(self, name: str, headings: Mapping[str, str]) -> None:
+        self.name = name
+        self._headings = headings
+
+    async def lookup(self, texts: Sequence[str]) -> dict[str, ThesaurusEntry | None]:
+        return {
+            t: ThesaurusEntry(self.name, "", self._headings[t]) if t in self._headings else None
+            for t in texts
+        }
+
+
+def test_check_all_and_apply_checks_combine_every_thesaurus() -> None:
+    question = _concepts(
+        Term.controlled("tutoring", vocabulary=Vocabulary.ERIC),
+        Term.controlled("Anxiety"),
+        Term.controlled("Made Up", vocabulary=Vocabulary.ERIC),
+    )
+    mesh = _Fixed("mesh", {"Anxiety": "Anxiety"})
+    eric = _Fixed("eric", {"tutoring": "Tutoring"})
+    results = asyncio.run(check_all(question, [mesh, eric]))
+    assert [r.vocabulary for r in results] == ["mesh", "eric"]
+    assert all(r.unchecked == () for r in results)
+    # Solo con MeSH, los de ERIC quedan sin comprobar.
+    (alone,) = asyncio.run(check_all(question, [mesh]))
+    assert [t.text for t in alone.unchecked] == ["tutoring", "Made Up"]
+    fixed = apply_checks(question, results)
+    assert fixed.conditions[0].terms == (
+        Term.controlled("Tutoring", vocabulary=Vocabulary.ERIC),
+        Term.controlled("Anxiety"),
+        Term.free("Made Up"),
+    )
