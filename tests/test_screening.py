@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -21,6 +22,7 @@ from biblio_search.screening import (
 )
 from biblio_search.search_log import SearchLog, build_log
 from biblio_search.selection import select_databases
+from biblio_search.snowball import Candidate, SnowballDirection, SnowballRun, SnowballSeed
 
 QUESTION = """
 question = "Does peer tutoring improve reading?"
@@ -190,3 +192,68 @@ def test_render_flow_lists_the_diagram_counts(store: ScreeningStore) -> None:
         "  Included: 0",
     ]
     store.close()
+
+
+def _round(seeds: Sequence[int], candidates: Sequence[ArticleSummary]) -> SnowballRun:
+    return SnowballRun(
+        run_at=WHEN,
+        directions=(SnowballDirection.REFERENCES, SnowballDirection.CITATIONS),
+        max_citing=100,
+        seeds=tuple(SnowballSeed(n, f"Seed {n}", f"W{n}00", 1, 1, 1) for n in seeds),
+        unmatched=(),
+        candidates=tuple(Candidate(record, cited_by=(seeds[0],)) for record in candidates),
+    )
+
+
+def test_snowballing_adds_candidates_and_remembers_its_seeds(store: ScreeningStore) -> None:
+    store.add_search(_log([_record("1", doi="10.1/a"), _record("2"), _record("3")]))
+    first, second, third = store.entries()
+    store.decide(first.entry_id, Decision.INCLUDE)
+    store.decide(second.entry_id, Decision.INCLUDE)
+    store.decide(third.entry_id, Decision.EXCLUDE, "off topic")
+    assert [e.entry_id for e in store.to_snowball()] == [first.entry_id, second.entry_id]
+    # Una referencia ya conocida (mismo DOI) no se repite: cuenta como duplicado.
+    added = store.add_snowball(
+        _round([first.entry_id], [_record("W7", doi="10.1/A"), _record("W8"), _record("W9")])
+    )
+    assert (added.search_number, added.identified, added.new_records) == (1, 3, 2)
+    assert [e.entry_id for e in store.to_snowball()] == [second.entry_id]
+    new = store.entries("pending")
+    assert [e.record.record_id for e in new] == ["W8", "W9"]
+    assert new[0].sources[0].database is Database.OPENALEX
+    summary = store.summary()
+    assert (summary.searches, summary.identified) == (1, 3)
+    assert (summary.snowball_rounds, summary.citation_identified) == (1, 3)
+    assert (summary.screened, summary.duplicates) == (5, 1)
+    assert store.add_search(_log([_record("4")])).search_number == 2
+    logs = store.search_logs()
+    assert logs[1].startswith("# Snowballing log")
+    assert render_flow(store.summary()).splitlines()[1:5] == [
+        "Records identified: 4",
+        "Snowballing rounds: 1",
+        "Records identified by snowballing: 3",
+        "Duplicates removed: 1",
+    ]
+    store.close()
+
+
+def test_a_version_1_file_is_upgraded(tmp_path: Path) -> None:
+    path = tmp_path / "old.sqlite"
+    with ScreeningStore.open(path) as store:
+        store.add_search(_log([_record("1")]))
+        (entry,) = store.entries()
+        store.decide(entry.entry_id, Decision.INCLUDE)
+    # Se deja el fichero como lo escribía la versión 0.13.0.
+    with sqlite3.connect(path) as connection:
+        connection.executescript(
+            "DROP TABLE snowballed; ALTER TABLE searches DROP COLUMN kind; PRAGMA user_version = 1;"
+        )
+    connection.close()
+    with ScreeningStore.open(path) as store:
+        assert store.summary().searches == 1
+        assert [e.entry_id for e in store.to_snowball()] == [entry.entry_id]
+        store.add_snowball(_round([entry.entry_id], [_record("W5")]))
+        assert store.summary().snowball_rounds == 1
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
+    connection.close()

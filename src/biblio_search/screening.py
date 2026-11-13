@@ -20,12 +20,13 @@ from pathlib import Path
 from types import TracebackType
 from typing import Literal, Self
 
-from biblio_search.merge import MergedRecord, RecordSource, identity_keys
+from biblio_search.merge import MergedRecord, MergedResults, RecordSource, identity_keys
 from biblio_search.models import ArticleSummary, Database
 from biblio_search.question_file import dump_question
 from biblio_search.search_log import SearchLog, render_log
+from biblio_search.snowball import SnowballRun, render_snowball
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 DEFAULT_SCREENING_FILE = "screening.sqlite"
 MAX_REASON_LENGTH = 500
 NO_REASON = "no reason given"
@@ -41,7 +42,8 @@ CREATE TABLE searches (
     question_toml TEXT NOT NULL,
     log TEXT NOT NULL,
     identified INTEGER NOT NULL,
-    new_records INTEGER NOT NULL
+    new_records INTEGER NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'search' CHECK (kind IN ('search', 'snowball'))
 );
 CREATE TABLE records (
     id INTEGER PRIMARY KEY,
@@ -70,6 +72,20 @@ CREATE TABLE decisions (
     decision TEXT NOT NULL CHECK (decision IN ('include', 'exclude', 'maybe')),
     reason TEXT NOT NULL,
     decided_at TEXT NOT NULL
+);
+CREATE TABLE snowballed (
+    record INTEGER PRIMARY KEY REFERENCES records(id),
+    search INTEGER NOT NULL REFERENCES searches(id)
+);
+"""
+# La versión 1 no distinguía búsquedas de rondas de bola de nieve ni guardaba de qué
+# registros se partió: todo lo que tenía era una búsqueda.
+_MIGRATE_FROM_1 = """
+ALTER TABLE searches ADD COLUMN kind TEXT NOT NULL DEFAULT 'search'
+    CHECK (kind IN ('search', 'snowball'));
+CREATE TABLE snowballed (
+    record INTEGER PRIMARY KEY REFERENCES records(id),
+    search INTEGER NOT NULL REFERENCES searches(id)
 );
 """
 
@@ -115,10 +131,11 @@ class AddedSearch:
 class FlowSummary:
     """The counts of a flow diagram of the screening.
 
-    ``identified`` adds up every record every search retrieved, and ``duplicates`` those
-    that turned out to be a work already found (in another database or another search), so
-    ``screened`` (the unique records) is the difference. ``exclusion_reasons`` counts the
-    excluded records by reason, most frequent first.
+    ``identified`` adds up every record every search retrieved and ``citation_identified``
+    every record snowballing reached (PRISMA's "other methods"); ``duplicates`` are those
+    that turned out to be a work already found (in another database, another search or an
+    earlier round), so ``screened`` (the unique records) is the difference.
+    ``exclusion_reasons`` counts the excluded records by reason, most frequent first.
     """
 
     searches: int
@@ -128,10 +145,12 @@ class FlowSummary:
     excluded: int
     maybe: int
     exclusion_reasons: tuple[tuple[str, int], ...]
+    snowball_rounds: int = 0
+    citation_identified: int = 0
 
     @property
     def duplicates(self) -> int:
-        return self.identified - self.screened
+        return self.identified + self.citation_identified - self.screened
 
     @property
     def decided(self) -> int:
@@ -173,6 +192,12 @@ class ScreeningStore:
                 with connection:
                     connection.executescript(_SCHEMA)
                     connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+            elif version == 1:
+                # executescript confirma lo pendiente antes de empezar: se abre la
+                # transacción dentro del guion para que la migración sea todo o nada.
+                connection.executescript(
+                    f"BEGIN; {_MIGRATE_FROM_1} PRAGMA user_version = {SCHEMA_VERSION}; COMMIT;"
+                )
             elif version != SCHEMA_VERSION:
                 raise ScreeningError(f"{path} is not a biblio-search screening file")
         except sqlite3.DatabaseError as exc:
@@ -216,25 +241,69 @@ class ScreeningStore:
         record links them: each may carry a decision, and the reviewer must not lose one.
         """
         with self._transaction() as db:
-            cursor = db.execute(
-                "INSERT INTO searches (searched_at, added_at, question, question_toml, log,"
-                " identified, new_records) VALUES (?, ?, ?, ?, ?, ?, 0)",
-                (
-                    log.searched_at.isoformat(timespec="seconds"),
-                    _now(),
-                    log.question.text,
-                    dump_question(log.question, log.options),
-                    render_log(log),
-                    log.merged.identified,
-                ),
+            _, added = self._add_round(
+                db,
+                kind="search",
+                when=log.searched_at,
+                question=log.question.text,
+                question_toml=dump_question(log.question, log.options),
+                rendered=render_log(log),
+                merged=log.merged,
             )
-            search = cursor.lastrowid
-            if search is None:
-                raise ScreeningError(f"cannot write {self.path}: the search got no id")
-            new_records = sum(self._add_record(db, search, merged) for merged in log.merged.records)
-            db.execute("UPDATE searches SET new_records = ? WHERE id = ?", (new_records, search))
-        number = self._db.execute("SELECT count(*) FROM searches").fetchone()[0]
-        return AddedSearch(number, log.merged.identified, new_records)
+        return added
+
+    def add_snowball(self, run: SnowballRun) -> AddedSearch:
+        """Add the works a snowballing round reached, and remember the records it started from.
+
+        ``search_number`` counts snowballing rounds, apart from searches.
+        """
+        with self._transaction() as db:
+            search, added = self._add_round(
+                db,
+                kind="snowball",
+                when=run.run_at,
+                question=f"Snowballing from {len(run.seeds):,} included records",
+                question_toml="",
+                rendered=render_snowball(run),
+                merged=run.merged,
+            )
+            db.executemany(
+                "INSERT OR REPLACE INTO snowballed (record, search) VALUES (?, ?)",
+                [(seed.entry_id, search) for seed in run.seeds],
+            )
+        return added
+
+    def _add_round(
+        self,
+        db: sqlite3.Connection,
+        *,
+        kind: Literal["search", "snowball"],
+        when: datetime,
+        question: str,
+        question_toml: str,
+        rendered: str,
+        merged: MergedResults,
+    ) -> tuple[int, AddedSearch]:
+        cursor = db.execute(
+            "INSERT INTO searches (searched_at, added_at, question, question_toml, log,"
+            " identified, new_records, kind) VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
+            (
+                when.isoformat(timespec="seconds"),
+                _now(),
+                question,
+                question_toml,
+                rendered,
+                merged.identified,
+                kind,
+            ),
+        )
+        search = cursor.lastrowid
+        if search is None:
+            raise ScreeningError(f"cannot write {self.path}: the search got no id")
+        new_records = sum(self._add_record(db, search, record) for record in merged.records)
+        db.execute("UPDATE searches SET new_records = ? WHERE id = ?", (new_records, search))
+        number = db.execute("SELECT count(*) FROM searches WHERE kind = ?", (kind,)).fetchone()[0]
+        return search, AddedSearch(number, merged.identified, new_records)
 
     def _add_record(self, db: sqlite3.Connection, search: int, merged: MergedRecord) -> bool:
         record = merged.record
@@ -311,6 +380,13 @@ class ScreeningStore:
             raise ScreeningError(f"there is no record {entry_id} in this screening")
         return entries[0]
 
+    def to_snowball(self) -> tuple[ScreeningEntry, ...]:
+        """The included records no snowballing round has started from yet."""
+        return self._select(
+            "WHERE d.decision = ? AND r.id NOT IN (SELECT record FROM snowballed)",
+            (Decision.INCLUDE.value,),
+        )
+
     def entries(self, which: EntryFilter = "all") -> tuple[ScreeningEntry, ...]:
         """The records in the order they were found, all of them or those in one state."""
         if which == "all":
@@ -362,9 +438,14 @@ class ScreeningStore:
 
     def summary(self) -> FlowSummary:
         db = self._db
-        searches, identified = db.execute(
-            "SELECT count(*), coalesce(sum(identified), 0) FROM searches"
-        ).fetchone()
+        rounds = {
+            str(kind): (int(count), int(identified))
+            for kind, count, identified in db.execute(
+                "SELECT kind, count(*), coalesce(sum(identified), 0) FROM searches GROUP BY kind"
+            )
+        }
+        searches, identified = rounds.get("search", (0, 0))
+        snowball_rounds, citation_identified = rounds.get("snowball", (0, 0))
         screened = db.execute("SELECT count(*) FROM records").fetchone()[0]
         counts = dict(db.execute("SELECT decision, count(*) FROM decisions GROUP BY decision"))
         reasons = db.execute(
@@ -380,10 +461,12 @@ class ScreeningStore:
             excluded=int(counts.get(Decision.EXCLUDE.value, 0)),
             maybe=int(counts.get(Decision.MAYBE.value, 0)),
             exclusion_reasons=tuple((str(label), int(n)) for label, n in reasons),
+            snowball_rounds=snowball_rounds,
+            citation_identified=citation_identified,
         )
 
     def search_logs(self) -> tuple[str, ...]:
-        """The Markdown log of every search added, oldest first, to document the screening."""
+        """The Markdown log of every search and snowballing round added, oldest first."""
         rows = self._db.execute("SELECT log FROM searches ORDER BY id").fetchall()
         return tuple(str(row[0]) for row in rows)
 
@@ -398,6 +481,13 @@ def render_flow(summary: FlowSummary) -> str:
     lines = [
         f"Searches added: {summary.searches:,}",
         f"Records identified: {summary.identified:,}",
+    ]
+    if summary.snowball_rounds:
+        lines += [
+            f"Snowballing rounds: {summary.snowball_rounds:,}",
+            f"Records identified by snowballing: {summary.citation_identified:,}",
+        ]
+    lines += [
         f"Duplicates removed: {summary.duplicates:,}",
         f"Records screened: {summary.screened:,}",
         f"  Pending: {summary.pending:,}",
