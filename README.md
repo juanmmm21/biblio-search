@@ -62,6 +62,9 @@ University of Jaén) in *"Cómo aprender (y enseñar) a realizar búsquedas en C
    its Atom API, OpenAlex through its works API) and shows
    the record count, the database's own reading of the query, any term it did not recognise
    and the first records to screen.
+9. **Snowball from what you include.** Del Pino's sixth step: the works an included record
+   cites and the works that cite it are candidates the equation may have missed. biblio-search
+   follows both through OpenAlex, for every discipline, and adds them to the screening.
 
 ## Engineering highlights
 
@@ -141,6 +144,16 @@ University of Jaén) in *"Cómo aprender (y enseñar) a realizar búsquedas en C
   search adds only the works the first one did not find (same DOI, PMID or database id), and
   two records already kept are never fused, so no decision is ever lost. The counts of a
   PRISMA-style flow diagram, exclusion reasons included, are read straight from the file.
+- **Snowballing that never matches by title.** An included record is found in OpenAlex by
+  its OpenAlex id, its DOI or its PMID, one batched filter per kind of identifier; a record
+  with none of them (ERIC records carry no DOI) is left out and named, because a title
+  match could follow another work's citations. References come from `referenced_works`,
+  citing works from the `cites:` filter, most cited first and capped per record, since a
+  classic paper has thousands. References OpenAlex has since merged or withdrawn are
+  counted and skipped. The file remembers which records were already followed, so each
+  round starts from the newly included ones, and the flow diagram counts the records
+  snowballing identified apart from the searches (PRISMA's "other methods"). Screening files
+  written by earlier versions are upgraded in place, in one transaction.
 - **Records are database-neutral.** A search returns ids and a second call fetches their
   summaries, in the same order, for every database; each record keeps its own identifier
   (PMID, ERIC number, arXiv id or OpenAlex work id) and link, so the CLI and the page list
@@ -189,7 +202,7 @@ biblio-search/
 │   ├── question_file.py  # TOML question files -> validated domain objects
 │   ├── ratelimit.py      # async requests-per-second limiter
 │   ├── eutils.py         # NCBI E-utilities client (esearch, esummary) and response parsing
-│   ├── openalex.py       # OpenAlex works client (search, summaries) and response parsing
+│   ├── openalex.py       # OpenAlex works client (search, summaries, references, citing works)
 │   ├── eric.py           # ERIC API client (Solr JSON, gateway retries) and response parsing
 │   ├── arxiv.py          # arXiv API client (Atom feeds, 3 s pace) and response parsing
 │   ├── mesh.py           # MeSH lookups through E-utilities (db=mesh)
@@ -205,12 +218,13 @@ biblio-search/
 │   ├── search_log.py     # reproducible Markdown log of a search
 │   ├── export.py         # merged records as RIS and CSV
 │   ├── screening.py      # SQLite screening project: decisions, reasons and flow counts
+│   ├── snowball.py       # references and citations of the included records via OpenAlex
 │   ├── web/
-│   │   ├── app.py        # FastAPI app: preview, check, SSE search, tuning, downloads, screening
+│   │   ├── app.py        # FastAPI app: preview, check, SSE search, tuning, screening, snowballing
 │   │   ├── views.py      # JSON views of questions, selections, counts and records
 │   │   ├── server.py     # binds 127.0.0.1 and opens the browser
 │   │   └── static/       # the page: HTML, CSS and JavaScript, no build step
-│   └── __main__.py       # command line interface (ui, draft, build, check, decs, databases, search, tune, screening)
+│   └── __main__.py       # command line interface (ui, draft, build, check, decs, databases, search, tune, screening, snowball)
 ├── examples/
 │   ├── caregiver-burden.toml       # worked example from Del Pino (2017)
 │   ├── peer-tutoring-reading.toml  # education question with free concepts and ERIC terms
@@ -265,6 +279,8 @@ The page opens in your browser on a free port of `127.0.0.1` (`--port` to fix it
   already used are offered as you type). The flow diagram on top counts records identified,
   duplicates removed, screened, pending, maybe, excluded by reason and included, and the
   included records download as RIS or CSV.
+- **Snowball** from the included records: the *Snowballing* box adds their references and
+  the works citing them, found through OpenAlex, as new records to screen.
 - **Import and export** the question as a TOML file, the same format the CLI reads.
 
 ![Drafting from a Spanish sentence: the local model fills in a PICO question in English, the comparison is described but not searched, and every MeSH heading it proposed is confirmed](docs/screenshots/draft.png)
@@ -278,6 +294,8 @@ The page opens in your browser on a free port of `127.0.0.1` (`--port` to fix it
 ![Tuning: the count of each condition on its own and without it, and of each sensitivity or specificity lever, in PubMed and OpenAlex](docs/screenshots/tuning.png)
 
 ![Screening: the flow diagram with identified, duplicate, pending, maybe, excluded (by reason) and included records, and each record with its decision and reason](docs/screenshots/screening.png)
+
+![Snowballing from the screening panel: records identified by searches and by four snowballing rounds, and the last round following one included record through OpenAlex](docs/screenshots/snowball.png)
 
 ### Question files and the command line
 
@@ -760,7 +778,62 @@ Search logs written to searches.md
 ```
 
 `--which` picks the records to export (`include` by default, or `maybe`, `exclude`,
-`pending`, `all`), and `--log` writes the log of every search added, oldest first.
+`pending`, `all`), and `--log` writes the log of every search and snowballing round added,
+oldest first.
+
+### Snowballing from the included records
+
+Once some records are included, `snowball` follows them through OpenAlex: the works each one
+cites (its references) and the works that cite it, most cited first. Everything it reaches
+joins the screening as new pending records, and works already there are recognised as
+before, by DOI, PMID or database id.
+
+```bash
+biblio-search snowball review.sqlite --max-citing 30
+```
+
+```console
+# Snowballing log
+
+- Date: 2026-11-13 10:37 UTC
+- Tool: biblio-search 0.14.0
+- Database: OpenAlex
+- Followed: references and citations
+- Citing works kept per record: 30 (most cited first)
+
+## Included records followed
+
+- #12 Coping and anxiety symptoms in family carers of dependent older people: Mediation and moderation effects of subjective caregiver burden (W4391296183): 51 references, 13 of 13 citing works
+- #18 Cost and burden of informal caregiving of dependent older people in a rural Indian community (W2136968531): 53 references, 30 of 121 citing works
+
+## Records
+
+- Candidates reached: 144
+- References OpenAlex no longer has (merged or withdrawn): 1
+
+Screening: snowballing round 2 added to review.sqlite, 142 new records, 2 already there
+```
+
+Each round starts only from the included records no earlier round followed, so screening
+what snowballing found and running it again is the iterative snowballing of a systematic
+review; it stops when no new record is included. `--direction references` or
+`--direction citations` follows one way only, and `--max-citing` (100 by default) caps the
+citing works kept per record. A record with no DOI, PMID or OpenAlex id, as ERIC records
+often are, is listed as left out instead of being guessed by its title. The round's log is
+kept in the screening file next to the search logs, and the flow diagram counts its records
+separately:
+
+```console
+Searches added: 1
+Records identified: 20
+Snowballing rounds: 2
+Records identified by snowballing: 271
+Duplicates removed: 2
+Records screened: 289
+```
+
+In the web interface, the screening panel shows a **Snowballing** box as soon as a record is
+included, with the same choices.
 
 ### Tuning sensitivity and specificity
 
