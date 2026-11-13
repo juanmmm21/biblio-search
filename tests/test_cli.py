@@ -8,7 +8,7 @@ from pathlib import Path
 
 import httpx
 import pytest
-from conftest import load_fixture, mesh_fixture_for
+from conftest import eric_fixture_for, load_fixture, mesh_fixture_for
 from test_tuning import CountingBackend
 
 import biblio_search.__main__ as cli
@@ -17,6 +17,7 @@ from biblio_search.arxiv import ArxivClient, ArxivConfig
 from biblio_search.assistant import OllamaClient, OllamaConfig
 from biblio_search.check import QuestionCheck
 from biblio_search.decs import DecsClient, DecsConfig, DecsDescriptor, DecsSuggestion
+from biblio_search.eric import EricClient, EricConfig
 from biblio_search.eutils import EutilsClient, EutilsConfig
 from biblio_search.models import ArticleSummary, Database, Term, Vocabulary
 from biblio_search.openalex import OpenAlexClient, OpenAlexConfig
@@ -118,6 +119,101 @@ def _patch_arxiv(monkeypatch: pytest.MonkeyPatch, seen: list[httpx.Request]) -> 
         )
 
     monkeypatch.setattr(cli, "ArxivClient", factory)
+
+
+def _patch_eric(monkeypatch: pytest.MonkeyPatch, seen: list[httpx.Request]) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        name = eric_fixture_for(request.url.params["search"])
+        return httpx.Response(200, content=(FIXTURES / name).read_bytes())
+
+    async def no_wait(_: float) -> None:
+        return None
+
+    def factory(config: EricConfig) -> EricClient:
+        return EricClient(
+            config,
+            transport=httpx.MockTransport(handler),
+            limiter=RateLimiter(1000, sleep=no_wait),
+            sleep=no_wait,
+        )
+
+    monkeypatch.setattr(cli, "EricClient", factory)
+
+
+def test_search_education_question_in_eric(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seen: list[httpx.Request] = []
+    _patch_eric(monkeypatch, seen)
+    assert main(["search", str(EDUCATION), "--max", "3", "--database", "eric"]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith('Searching in: ERIC\n\nERIC\nEquation: (subject_ss:"Peer Teaching" OR ')
+    # ERIC no dice cómo leyó la consulta: no hay línea «understood».
+    assert "understood" not in out
+    assert "Results: 160" in out
+    assert "  1. ERIC EJ888659 (2010) The Impact of Cross-Age Peer Tutoring" in out
+    assert "| Middle Grades Research Journal [Journal Articles, Reports - Research]" in out
+    assert len(seen) == 1
+
+
+def test_check_confirms_eric_descriptors_through_the_api(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seen: list[httpx.Request] = []
+    _patch_eric(monkeypatch, seen)
+    question = tmp_path / "q.toml"
+    question.write_text(
+        'question = "q"\nformat = "concepts"\n'
+        '[[components]]\ndescription = "peer tutoring"\n'
+        '[[components.conditions]]\nlabel = "peer tutoring"\n'
+        'controlled = [{ term = "peer teaching", vocabulary = "eric" },'
+        ' { term = "Peer Tutoring", vocabulary = "eric" }]\nfree = ["tutor*"]\n',
+        encoding="utf-8",
+    )
+
+    assert main(["check", str(question)]) == 0
+
+    out = capsys.readouterr().out
+    # Sin descriptores MeSH no se pregunta a NCBI: solo sale el bloque de ERIC.
+    assert out.startswith("ERIC check of 2 controlled terms\n")
+    assert "  ok          Peer Teaching [peer tutoring]\n" in out
+    assert "  not found   Peer Tutoring [peer tutoring]: searched as free text instead" in out
+    assert 'Equation after the check: (subject_ss:"Peer Teaching" OR title:"Peer Tutoring"' in out
+    assert "confirmed through the ERIC API; set ERIC_THESAURUS" in out
+    assert all(r.url.host == "api.ies.ed.gov" for r in seen)
+
+
+def test_check_uses_the_eric_thesaurus_file_and_mesh_together(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _patch_mesh_client(monkeypatch, [])
+    eric: list[httpx.Request] = []
+    _patch_eric(monkeypatch, eric)
+    monkeypatch.setenv("ERIC_THESAURUS", str(FIXTURES / "eric_thesaurus_excerpt.xml"))
+    question = tmp_path / "q.toml"
+    question.write_text(
+        'question = "q"\nformat = "concepts"\n'
+        '[[components]]\ndescription = "peer tutoring"\n'
+        '[[components.conditions]]\nlabel = "peer tutoring"\n'
+        'controlled = [{ term = "Peer Tutoring", vocabulary = "eric" }, "Anxiety"]\n',
+        encoding="utf-8",
+    )
+
+    assert main(["check", str(question)]) == 0
+
+    out = capsys.readouterr().out
+    mesh, eric_block = out.split("\n\nERIC check of 1 controlled terms\n")
+    assert mesh.startswith("MeSH check of 1 controlled terms\n  ok          Anxiety (D001007)")
+    # Cada tesauro comprueba lo suyo: nada queda como «no comprobado».
+    assert "Not checked" not in out
+    assert "  entry term  Peer Tutoring -> Peer Teaching [peer tutoring]" in eric_block
+    assert "pairs this term with Tutoring too" in eric_block
+    # El sinónimo que escribió el usuario se propone como lenguaje libre.
+    assert "Synonyms you could add as free text:\n  peer tutoring: Peer Tutoring\n" in eric_block
+    assert 'Equation after the check: (subject_ss:"Peer Teaching" OR title:anxiety' in eric_block
+    assert "ERIC Thesaurus file (7 terms)" in eric_block
+    assert eric == []
 
 
 def test_search_physics_question_in_arxiv(
@@ -399,19 +495,10 @@ def test_databases_explains_the_automatic_choice(capsys: pytest.CaptureFixture[s
 def test_databases_for_an_education_question(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["databases", str(EDUCATION)]) == 0
     out = capsys.readouterr().out
-    assert "  ERIC (biblio-search cannot search it yet)\n    - the discipline is education" in out
+    assert "  ERIC\n    - the discipline is education" in out
+    assert '\nERIC equation: (subject_ss:"Peer Teaching" OR' in out
     assert '\nOpenAlex equation: ("peer teaching" OR "peer tutor*"~0 OR' in out
     assert "PubMed equation" not in out
-
-
-def test_databases_none_searchable(capsys: pytest.CaptureFixture[str]) -> None:
-    assert main(["databases", str(EDUCATION), "--database", "eric"]) == 0
-    out = capsys.readouterr().out
-    assert out.endswith(
-        "\nNone of them can be searched yet; add --database pubmed, --database arxiv or "
-        "--database openalex to search one that can be.\n"
-    )
-    assert "equation" not in out
 
 
 def test_databases_by_hand_include_the_rule_reasons(capsys: pytest.CaptureFixture[str]) -> None:
@@ -426,18 +513,6 @@ def test_databases_rejects_unknown_names(capsys: pytest.CaptureFixture[str]) -> 
     with pytest.raises(SystemExit):
         main(["databases", str(EXAMPLE), "--database", "scopus"])
     assert "invalid choice" in capsys.readouterr().err
-
-
-def test_search_needs_a_searchable_database(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    seen: list[httpx.Request] = []
-    _patch_client(monkeypatch, seen)
-    assert main(["search", str(EDUCATION), "--database", "eric"]) == 2
-    err = capsys.readouterr().err
-    assert "none of the chosen databases can be searched yet (ERIC)" in err
-    assert "--database pubmed, --database arxiv or --database openalex" in err
-    assert seen == []
 
 
 def test_search_in_pubmed_by_hand(

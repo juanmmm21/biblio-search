@@ -6,7 +6,7 @@ import argparse
 import asyncio
 import sys
 from collections.abc import Sequence
-from contextlib import AbstractAsyncContextManager
+from contextlib import AbstractAsyncContextManager, AsyncExitStack
 from dataclasses import replace
 from pathlib import Path
 
@@ -28,7 +28,13 @@ from biblio_search.catalog import (
     dialect_notes,
     heading_label,
 )
-from biblio_search.check import QuestionCheck, apply_check, check_question, scope_note
+from biblio_search.check import (
+    QuestionCheck,
+    apply_checks,
+    check_all,
+    scope_note,
+    vocabularies_to_check,
+)
 from biblio_search.decs import (
     LICENCE_URL,
     DecsClient,
@@ -36,6 +42,13 @@ from biblio_search.decs import (
     DecsMeshThesaurus,
     DecsSuggestion,
     suggest_mesh,
+)
+from biblio_search.eric import EricClient, EricConfig
+from biblio_search.eric_thesaurus import (
+    EricApiThesaurus,
+    EricFileThesaurus,
+    EricThesaurusFile,
+    describe_source,
 )
 from biblio_search.eutils import MAX_RETMAX, EutilsClient, EutilsConfig
 from biblio_search.export import to_csv, to_ris
@@ -52,9 +65,11 @@ from biblio_search.models import (
     TermCheck,
     TermKind,
     TermStatus,
+    Vocabulary,
 )
 from biblio_search.openalex import OpenAlexClient, OpenAlexConfig
 from biblio_search.pipeline import SearchBackend, SearchReport, run_search
+from biblio_search.protocols import Thesaurus
 from biblio_search.question_file import dump_question, load_question, question_to_data
 from biblio_search.screening import (
     DEFAULT_SCREENING_FILE,
@@ -162,7 +177,7 @@ def _build_parser() -> argparse.ArgumentParser:
     check = commands.add_parser(
         "check",
         parents=[question],
-        help="confirm the MeSH headings of a question and print the corrected equation",
+        help="confirm the MeSH and ERIC headings of a question and print the corrected equation",
     )
     check.add_argument(
         "--email", help="contact email sent to NCBI (default: NCBI_EMAIL environment variable)"
@@ -302,7 +317,8 @@ def format_term_check(check: TermCheck) -> str:
     where = f"[{check.condition}]"
     if check.entry is None:
         return f"  not found   {check.term.text} {where}: searched as free text instead"
-    heading = f"{check.entry.name} ({check.entry.identifier})"
+    identifier = f" ({check.entry.identifier})" if check.entry.identifier else ""
+    heading = f"{check.entry.name}{identifier}"
     if check.status is TermStatus.ENTRY_TERM:
         line = f"  entry term  {check.term.text} -> {heading} {where}"
     elif check.status is TermStatus.TRANSLATED:
@@ -341,17 +357,34 @@ def format_check(result: QuestionCheck, equation: str, *, decs: bool = False) ->
     return "\n".join(lines)
 
 
+# Cada vocabulario se comprueba en su tesauro y su ecuación se enseña en su base.
+CHECK_DATABASES = {Vocabulary.MESH.value: Database.PUBMED, Vocabulary.ERIC.value: Database.ERIC}
+
+
 async def _check(
-    question: StructuredQuestion, config: EutilsConfig, decs_config: DecsConfig | None
-) -> tuple[QuestionCheck, StructuredQuestion]:
-    async with EutilsClient(config) as client:
-        mesh = MeshThesaurus(client)
-        if decs_config is None:
-            result = await check_question(question, mesh)
-        else:
-            async with DecsClient(decs_config) as decs:
-                result = await check_question(question, DecsMeshThesaurus(mesh, decs))
-    return result, apply_check(question, result)
+    question: StructuredQuestion,
+    config: EutilsConfig,
+    decs_config: DecsConfig | None,
+    eric_file: EricThesaurusFile | None,
+) -> tuple[tuple[QuestionCheck, ...], StructuredQuestion]:
+    vocabularies = vocabularies_to_check(question)
+    async with AsyncExitStack() as stack:
+        thesauri: list[Thesaurus] = []
+        if Vocabulary.MESH in vocabularies:
+            mesh = MeshThesaurus(await stack.enter_async_context(EutilsClient(config)))
+            if decs_config is None:
+                thesauri.append(mesh)
+            else:
+                decs = await stack.enter_async_context(DecsClient(decs_config))
+                thesauri.append(DecsMeshThesaurus(mesh, decs))
+        if Vocabulary.ERIC in vocabularies:
+            if eric_file is not None:
+                thesauri.append(EricFileThesaurus(eric_file))
+            else:
+                eric = await stack.enter_async_context(EricClient(EricConfig()))
+                thesauri.append(EricApiThesaurus(eric))
+        results = await check_all(question, thesauri)
+    return results, apply_checks(question, results)
 
 
 def format_suggestion(suggestion: DecsSuggestion) -> str:
@@ -467,9 +500,7 @@ def format_selection(
     return "\n".join(lines)
 
 
-_SEARCHABLE_HINT = (
-    "add --database pubmed, --database arxiv or --database openalex to search one that can be"
-)
+_SEARCHABLE_HINT = "add --database with one of " + ", ".join(sorted(d.value for d in SEARCHABLE))
 
 
 def _config(args: argparse.Namespace) -> EutilsConfig:
@@ -498,6 +529,8 @@ def _open_backend(
         return OpenAlexClient(OpenAlexConfig.from_env())
     if database is Database.ARXIV:
         return ArxivClient(ArxivConfig())
+    if database is Database.ERIC:
+        return EricClient(EricConfig())
     raise QuestionError(f"biblio-search cannot search {DATABASE_LABELS[database]} yet")
 
 
@@ -645,9 +678,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
         if args.command == "check":
             decs_config = DecsConfig.from_env()
-            result, fixed = asyncio.run(_check(question, _config(args), decs_config))
-            equation = DIALECTS[Database.PUBMED].render(fixed, options)
-            print(format_check(result, equation, decs=decs_config is not None))
+            eric_file = EricThesaurusFile.from_env()
+            results, fixed = asyncio.run(_check(question, _config(args), decs_config, eric_file))
+            blocks: list[str] = []
+            for result in results:
+                equation = DIALECTS[CHECK_DATABASES[result.vocabulary]].render(fixed, options)
+                block = format_check(result, equation, decs=decs_config is not None)
+                if result.vocabulary == Vocabulary.ERIC:
+                    block += f"\n\n{describe_source(eric_file)}."
+                blocks.append(block)
+            print("\n\n".join(blocks))
             return 0
         requested = [Database(name) for name in args.databases]
         selection = select_databases(question, SEARCHABLE, requested)
