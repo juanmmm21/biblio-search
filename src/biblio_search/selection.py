@@ -92,6 +92,8 @@ def automatic_reasons(question: StructuredQuestion) -> dict[Database, tuple[str,
     if question.discipline in ARXIV_DISCIPLINES:
         label = question.discipline.value.replace("_", " ")
         reasons[Database.ARXIV].append(f"the discipline is {label}")
+    if question.arxiv_categories:
+        reasons[Database.ARXIV].append("the question narrows arXiv to some categories")
     reasons[Database.OPENALEX].append(
         "general multidisciplinary database, so nothing outside the specialised ones is missed"
     )

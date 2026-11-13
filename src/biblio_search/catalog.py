@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from biblio_search.arxiv_query import ArxivDialect
 from biblio_search.models import Database, StructuredQuestion, Term, Vocabulary
 from biblio_search.openalex_query import OpenAlexDialect
 from biblio_search.protocols import QueryDialect
@@ -9,10 +10,11 @@ from biblio_search.pubmed_query import PubMedDialect, foreign_terms
 
 DIALECTS: dict[Database, QueryDialect] = {
     Database.PUBMED: PubMedDialect(),
+    Database.ARXIV: ArxivDialect(),
     Database.OPENALEX: OpenAlexDialect(),
 }
-# Bases con cliente: ERIC y arXiv tienen su paso propio en el desarrollo.
-SEARCHABLE = frozenset({Database.PUBMED, Database.OPENALEX})
+# Bases con cliente: ERIC tiene su paso propio en el desarrollo.
+SEARCHABLE = frozenset({Database.PUBMED, Database.ARXIV, Database.OPENALEX})
 VOCABULARY_LABELS = {Vocabulary.MESH.value: "MeSH", Vocabulary.ERIC.value: "ERIC"}
 DATABASE_LABELS = {
     Database.PUBMED: "PubMed",
@@ -21,7 +23,11 @@ DATABASE_LABELS = {
     Database.OPENALEX: "OpenAlex",
 }
 # Cómo se nombra el identificador de un registro en cada base («PMID 123», «OpenAlex W1»).
-RECORD_ID_LABELS = {Database.PUBMED: "PMID", Database.OPENALEX: "OpenAlex"}
+RECORD_ID_LABELS = {
+    Database.PUBMED: "PMID",
+    Database.ARXIV: "arXiv",
+    Database.OPENALEX: "OpenAlex",
+}
 
 
 def heading_label(term: Term) -> str:

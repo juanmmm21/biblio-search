@@ -13,6 +13,7 @@ from test_tuning import CountingBackend
 
 import biblio_search.__main__ as cli
 from biblio_search.__main__ import format_check, format_record, format_suggestion, main
+from biblio_search.arxiv import ArxivClient, ArxivConfig
 from biblio_search.assistant import OllamaClient, OllamaConfig
 from biblio_search.check import QuestionCheck
 from biblio_search.decs import DecsClient, DecsConfig, DecsDescriptor, DecsSuggestion
@@ -28,6 +29,8 @@ from biblio_search.screening import Decision, ScreeningStore
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 EXAMPLE = EXAMPLES / "caregiver-burden.toml"
 EDUCATION = EXAMPLES / "peer-tutoring-reading.toml"
+PHYSICS = EXAMPLES / "neural-decoders-qec.toml"
+FIXTURES = Path(__file__).parent / "fixtures"
 
 
 def test_build_prints_equation(capsys: pytest.CaptureFixture[str]) -> None:
@@ -96,6 +99,52 @@ def _patch_openalex(monkeypatch: pytest.MonkeyPatch, seen: list[httpx.Request]) 
         )
 
     monkeypatch.setattr(cli, "OpenAlexClient", factory)
+
+
+def _patch_arxiv(monkeypatch: pytest.MonkeyPatch, seen: list[httpx.Request]) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, content=(FIXTURES / "arxiv_search_qec.xml").read_bytes())
+
+    async def no_wait(_: float) -> None:
+        return None
+
+    def factory(config: ArxivConfig) -> ArxivClient:
+        return ArxivClient(
+            config,
+            transport=httpx.MockTransport(handler),
+            limiter=RateLimiter(1000, sleep=no_wait),
+            sleep=no_wait,
+        )
+
+    monkeypatch.setattr(cli, "ArxivClient", factory)
+
+
+def test_search_physics_question_in_arxiv(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seen: list[httpx.Request] = []
+    _patch_arxiv(monkeypatch, seen)
+    assert main(["search", str(PHYSICS), "--max", "3", "--database", "arxiv"]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith('Searching in: arXiv\n\narXiv\nEquation: (ti:"neural network" OR ')
+    assert "AND (cat:quant-ph OR cat:cs.LG)" in out
+    assert "Results: 115" in out
+    assert "  1. arXiv 2304.07362 (2023) The END: An Equivariant Neural Decoder" in out
+    assert "| Nature 635, 834-840 (2024) [article]" in out
+    # Los registros llegan con la búsqueda: arXiv recibe una sola petición.
+    assert len(seen) == 1
+
+
+def test_databases_sends_physics_to_arxiv_and_explains_its_equation(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main(["databases", str(PHYSICS)]) == 0
+    out = capsys.readouterr().out
+    assert "  arXiv\n    - the discipline is physics\n" in out
+    assert "    - the question narrows arXiv to some categories\n" in out
+    assert "\narXiv equation: (ti:" in out
+    assert "Note: arXiv takes no wildcard inside a phrase" in out
 
 
 def test_search_prints_report(
@@ -359,8 +408,8 @@ def test_databases_none_searchable(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["databases", str(EDUCATION), "--database", "eric"]) == 0
     out = capsys.readouterr().out
     assert out.endswith(
-        "\nNone of them can be searched yet; add --database pubmed or --database openalex "
-        "to search one that can be.\n"
+        "\nNone of them can be searched yet; add --database pubmed, --database arxiv or "
+        "--database openalex to search one that can be.\n"
     )
     assert "equation" not in out
 
@@ -384,10 +433,10 @@ def test_search_needs_a_searchable_database(
 ) -> None:
     seen: list[httpx.Request] = []
     _patch_client(monkeypatch, seen)
-    assert main(["search", str(EDUCATION), "--database", "eric", "--database", "arxiv"]) == 2
+    assert main(["search", str(EDUCATION), "--database", "eric"]) == 2
     err = capsys.readouterr().err
-    assert "none of the chosen databases can be searched yet (ERIC, arXiv)" in err
-    assert "--database pubmed or --database openalex" in err
+    assert "none of the chosen databases can be searched yet (ERIC)" in err
+    assert "--database pubmed, --database arxiv or --database openalex" in err
     assert seen == []
 
 

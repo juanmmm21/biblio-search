@@ -11,6 +11,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from biblio_search import __version__
+from biblio_search.arxiv import ArxivClient, ArxivConfig
 from biblio_search.assistant import (
     AssistantError,
     Draft,
@@ -466,7 +467,9 @@ def format_selection(
     return "\n".join(lines)
 
 
-_SEARCHABLE_HINT = "add --database pubmed or --database openalex to search one that can be"
+_SEARCHABLE_HINT = (
+    "add --database pubmed, --database arxiv or --database openalex to search one that can be"
+)
 
 
 def _config(args: argparse.Namespace) -> EutilsConfig:
@@ -493,6 +496,8 @@ def _open_backend(
         return EutilsClient(_config(args))
     if database is Database.OPENALEX:
         return OpenAlexClient(OpenAlexConfig.from_env())
+    if database is Database.ARXIV:
+        return ArxivClient(ArxivConfig())
     raise QuestionError(f"biblio-search cannot search {DATABASE_LABELS[database]} yet")
 
 
