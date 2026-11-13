@@ -1,7 +1,7 @@
 # biblio-search
 
 Turn a research question from any discipline into a rigorous, reproducible search strategy,
-and run it in PubMed, arXiv and OpenAlex.
+and run it in PubMed, ERIC, arXiv and OpenAlex.
 
 biblio-search models the bibliographic search method taught to health-science students, and
 extends it to any field:
@@ -10,7 +10,7 @@ term with the right field, and assemble everything into a single boolean equatio
 sensitivity and specificity you can tune on purpose instead of by trial and error.
 
 Everything happens in a local web page: write the question, watch the equation, the logic
-grid and the chosen databases update as you type, check the headings against MeSH and run the
+grid and the chosen databases update as you type, check the headings against MeSH and ERIC and run the
 search with live progress, then screen the records it found, deciding on each one with its
 reason in a file you can come back to. The same features are available from the command line.
 
@@ -58,8 +58,8 @@ University of Jaén) in *"Cómo aprender (y enseñar) a realizar búsquedas en C
    relevant, the search is probably too sensitive. biblio-search counts every condition and
    every lever so you tune with numbers.
 8. **Run it and read what the database understood.** biblio-search sends each database its
-   own equation (PubMed through NCBI E-utilities, arXiv through its Atom API, OpenAlex through
-   its works API) and shows
+   own equation (PubMed through NCBI E-utilities, ERIC through its search API, arXiv through
+   its Atom API, OpenAlex through its works API) and shows
    the record count, the database's own reading of the query, any term it did not recognise
    and the first records to screen.
 
@@ -111,6 +111,20 @@ University of Jaén) in *"Cómo aprender (y enseñar) a realizar búsquedas en C
   wildcards inside phrases, so a truncated phrase is sent as the phrase and the note says
   so; anything that is not a plain word is quoted, because `self-care` unquoted matches twenty
   times more records than `"self-care"`.
+- **ERIC searched descriptor by descriptor.** ERIC's API is a Solr index without stemming.
+  Descriptors go to its exact descriptor field, so `Reading` does not also bring every
+  descriptor that contains the word (*Reading Habits*, *Reading Tests*); free text goes to
+  `title:` OR `description:` (the abstract). Solr takes no wildcard inside a phrase, so a
+  truncated phrase requires its words together (`peer tutor*` becomes `(peer AND tutor*)`)
+  and the note says so. ERIC has neither major descriptors nor explosion: the scope of an
+  ERIC heading changes nothing, and the note says that too.
+- **ERIC descriptors confirmed without a thesaurus API.** ERIC publishes no thesaurus
+  endpoint, so a descriptor counts as real when ERIC's own records carry it, written exactly
+  as they carry it, on at least five of them (an indexing slip put the synonym *Peer
+  Tutoring* on one record). Pointing `ERIC_THESAURUS` at the thesaurus ERIC publishes for
+  download adds what the records cannot tell: synonyms lead to their descriptor, a synonym
+  ERIC splits into two descriptors says so, and the descriptor's own synonyms are suggested
+  as free text.
 - **One record per work, whatever the database.** Records from every database are merged
   by DOI or PMID (OpenAlex knows the PMID of the works PubMed indexes, and an arXiv preprint
   without a journal DOI gets the `10.48550/arXiv.<id>` DOI arXiv registers for it, which is
@@ -129,7 +143,8 @@ University of Jaén) in *"Cómo aprender (y enseñar) a realizar búsquedas en C
   PRISMA-style flow diagram, exclusion reasons included, are read straight from the file.
 - **Records are database-neutral.** A search returns ids and a second call fetches their
   summaries, in the same order, for every database; each record keeps its own identifier
-  (PMID, arXiv id or OpenAlex work id) and link, so the CLI and the page list them side by side.
+  (PMID, ERIC number, arXiv id or OpenAlex work id) and link, so the CLI and the page list
+  them side by side. ERIC records carry no DOI, so they are never merged with the others.
 - **A polite async client.** The E-utilities client is built on `httpx.AsyncClient`, spaces
   requests to NCBI's quota (3 per second, 10 with an API key), always identifies the tool,
   retries 429/5xx and network errors with backoff (honouring `Retry-After`, including NCBI's
@@ -140,8 +155,10 @@ University of Jaén) in *"Cómo aprender (y enseñar) a realizar búsquedas en C
   The arXiv client keeps to its terms of use (one request every three seconds over a single
   connection), asks for one record when only the count is needed (arXiv answers
   `max_results=0` with a server error), and keeps the records each search page already
-  carries, so listing them costs no second request.
-- **Offline, deterministic tests.** Real NCBI, arXiv and OpenAlex responses are recorded as fixtures and an
+  carries, so listing them costs no second request. ERIC publishes no rate limit; its client
+  keeps to two requests per second over one connection and retries the gateway errors its
+  API sometimes answers with HTTP 200.
+- **Offline, deterministic tests.** Real NCBI, ERIC, arXiv and OpenAlex responses are recorded as fixtures and an
   autouse guard makes any test that opens a socket fail.
 - **Dialects behind a protocol.** Query generation sits behind a small `QueryDialect`
   interface, so other databases can get their own syntax without touching the model.
@@ -167,13 +184,16 @@ biblio-search/
 │   ├── protocols.py      # QueryDialect and Thesaurus interfaces
 │   ├── pubmed_query.py   # PubMed field tags, quoting rules and equation assembly
 │   ├── openalex_query.py # OpenAlex equation: unstemmed title/abstract search, proximity
+│   ├── eric_query.py     # ERIC equation: exact descriptors, title/description, Solr quoting
 │   ├── arxiv_query.py    # arXiv equation: ti/abs fields, categories, ANDNOT
 │   ├── question_file.py  # TOML question files -> validated domain objects
 │   ├── ratelimit.py      # async requests-per-second limiter
 │   ├── eutils.py         # NCBI E-utilities client (esearch, esummary) and response parsing
 │   ├── openalex.py       # OpenAlex works client (search, summaries) and response parsing
+│   ├── eric.py           # ERIC API client (Solr JSON, gateway retries) and response parsing
 │   ├── arxiv.py          # arXiv API client (Atom feeds, 3 s pace) and response parsing
 │   ├── mesh.py           # MeSH lookups through E-utilities (db=mesh)
+│   ├── eric_thesaurus.py # ERIC descriptors through the API or the downloaded thesaurus
 │   ├── decs.py           # DeCS client and the Spanish-to-MeSH bridge (optional, licensed)
 │   ├── check.py          # heading checks, synonym suggestions, unknown terms to free text
 │   ├── assistant.py      # optional Ollama assistant: a sentence -> a checked question draft
@@ -195,7 +215,7 @@ biblio-search/
 │   ├── caregiver-burden.toml       # worked example from Del Pino (2017)
 │   ├── peer-tutoring-reading.toml  # education question with free concepts and ERIC terms
 │   └── neural-decoders-qec.toml    # physics question for arXiv, narrowed to two categories
-└── tests/                # unit tests and recorded NCBI, arXiv, OpenAlex, DeCS and Ollama fixtures, no network access
+└── tests/                # unit tests and recorded NCBI, ERIC, arXiv, OpenAlex, DeCS and Ollama fixtures, no network access
 ```
 
 ## Installation
@@ -230,14 +250,14 @@ The page opens in your browser on a free port of `127.0.0.1` (`--port` to fix it
 - **Watch the strategy take shape**: the highlighted equation with a copy button, Del Pino's
   logic grid (one row per condition, OR inside a row, AND between rows, exclusions with NOT),
   the chosen databases with the reasons, and the question tree.
-- **Check the MeSH headings**: each one is confirmed, corrected or flagged, with suggested
+- **Check the headings** against MeSH and ERIC: each one is confirmed, corrected or flagged, with suggested
   synonyms you can add with a click and a button that applies the corrections.
 - **Tune** the strategy: the count of every condition on its own and without it, and of
   every lever of the method moved one at a time, with Del Pino's warnings and an *Apply*
   button that loads the variant you prefer into the form.
 - **Search** every chosen database and follow each step live. Each database gets its own
   block: the record count, how it read its equation and the first records, with links to
-  PubMed, arXiv or OpenAlex and to the DOI. When it finishes, the records of every database are
+  PubMed, ERIC, arXiv or OpenAlex and to the DOI. When it finishes, the records of every database are
   merged without duplicates and you can download the search log, and the records as RIS
   or CSV.
 - **Screen** the records: *Add to screening* sends a finished search to the screening panel,
@@ -250,6 +270,8 @@ The page opens in your browser on a free port of `127.0.0.1` (`--port` to fix it
 ![Drafting from a Spanish sentence: the local model fills in a PICO question in English, the comparison is described but not searched, and every MeSH heading it proposed is confirmed](docs/screenshots/draft.png)
 
 ![Live search in PubMed and OpenAlex: each step as it happens, the merged records with the log, RIS and CSV downloads, the record counts, how each database read its equation and the records to screen](docs/screenshots/search.png)
+
+![An education question: the ERIC equation with exact descriptors and title/description free text, and its descriptors confirmed through the ERIC API](docs/screenshots/eric.png)
 
 ![A physics question searched in arXiv and OpenAlex: the arXiv equation with its fields and categories, 115 records and the preprints with their arXiv DOIs](docs/screenshots/arxiv.png)
 
@@ -325,9 +347,10 @@ The MEDLINE filter is only applied to conditions that also have headings, so a f
 condition never loses the indexed records. Avoid it for systematic reviews, which need the
 extra sensitivity.
 
-### Checking headings against MeSH
+### Checking headings against MeSH and ERIC
 
-`check` looks up every controlled term in NCBI's MeSH database before you search:
+`check` looks up every controlled term in its thesaurus before you search: MeSH headings in
+NCBI's MeSH database, ERIC descriptors in ERIC. For MeSH:
 
 ```console
 $ biblio-search check examples/caregiver-burden.toml
@@ -358,8 +381,39 @@ Suggested synonyms come from the descriptor's entry terms, put back in natural o
 already have covers them (`caregiv*` covers *Caregiver*). Nothing is written to your file:
 copy the ones that fit your question.
 
-Only MeSH headings are sent to MeSH. Headings from other vocabularies (ERIC descriptors) are
-listed under `Not checked` and left exactly as written.
+Each thesaurus only sees its own headings, and a question with both gets one report per
+thesaurus, each with the equation of its database. ERIC has no thesaurus API, so by default a
+descriptor is confirmed by finding it, written exactly that way, on ERIC's own records:
+
+```console
+$ biblio-search check question.toml
+ERIC check of 1 controlled terms
+  not found   Peer Tutoring [peer tutoring]: searched as free text instead
+
+Equation after the check: (title:"Peer Tutoring" OR description:"Peer Tutoring" OR title:(peer AND tutor*) OR description:(peer AND tutor*))
+
+ERIC descriptors are confirmed through the ERIC API; set ERIC_THESAURUS to the thesaurus file (https://eric.ed.gov/?download) to also follow synonyms.
+```
+
+*Peer Tutoring* is not a descriptor but a synonym, and records cannot say which descriptor it
+stands for. The thesaurus can: download `ERICThesaurus2025.zip` from
+[eric.ed.gov/?download](https://eric.ed.gov/?download) (free for public use) and point
+`ERIC_THESAURUS` at it, zipped or not. The check then runs offline and follows synonyms:
+
+```console
+$ export ERIC_THESAURUS=~/Downloads/ERICThesaurus2025.zip
+$ biblio-search check question.toml
+ERIC check of 1 controlled terms
+  entry term  Peer Tutoring -> Peer Teaching [peer tutoring]
+              the thesaurus pairs this term with Tutoring too; add it if it fits the question
+
+Equation after the check: (subject_ss:"Peer Teaching" OR title:(peer AND tutor*) OR description:(peer AND tutor*))
+
+ERIC descriptors are confirmed in the ERIC Thesaurus file (11929 terms).
+```
+
+Headings of a vocabulary biblio-search cannot check are listed under `Not checked` and left
+exactly as written.
 
 ### Spanish headings through DeCS
 
@@ -482,8 +536,17 @@ To choose by hand, list them in the file (`databases = ["pubmed", "openalex"]`) 
 rules. A database chosen by hand still shows the reasons the rules would have given.
 
 Questions from other disciplines use free concepts and their own thesaurus. The education
-example is searched in ERIC and OpenAlex by default; asked to use PubMed anyway, biblio-search
-searches its ERIC descriptors as free text and warns about it:
+example is searched in ERIC and OpenAlex by default. ERIC searches its descriptors exactly,
+and free text in title and abstract:
+
+```console
+$ biblio-search build examples/peer-tutoring-reading.toml --dialect eric
+(subject_ss:"Peer Teaching" OR title:(peer AND tutor*) OR description:(peer AND tutor*) OR title:"peer assisted learning" OR description:"peer assisted learning" OR title:(cross AND age AND tutor*) OR description:(cross AND age AND tutor*)) AND (subject_ss:"Reading Comprehension" OR title:"reading comprehension" OR description:"reading comprehension" OR title:(reading AND skill*) OR description:(reading AND skill*)) AND (subject_ss:"Elementary School Students" OR title:(primary AND school*) OR description:(primary AND school*) OR title:(elementary AND school*) OR description:(elementary AND school*))
+biblio-search: ERIC takes no wildcard inside a phrase, so the words of these are required together, in any order: peer tutor*, cross age tutor*, reading skill*, primary school*, elementary school*
+```
+
+Asked to use PubMed anyway, biblio-search searches the ERIC descriptors as free text and
+warns about it:
 
 ```console
 $ biblio-search build examples/peer-tutoring-reading.toml
@@ -528,8 +591,7 @@ OpenAlex equation: ("neural network*"~0 OR "deep learning" OR "machine learning"
 ### Running the search
 
 `search` builds the equation of every chosen database it can query, runs them one after the
-other and lists the first records of each (20 by default, up to 10,000). Chosen databases it
-cannot query yet are named on the first line:
+other and lists the first records of each (20 by default, up to 10,000):
 
 ```console
 $ biblio-search search examples/caregiver-burden.toml --max 3
@@ -560,7 +622,26 @@ Counts change as the databases grow. The translation lines are worth reading: he
 expanded `Depression[mj]` to also cover *depressive disorder*, and OpenAlex confirms it
 searched title and abstract with truncation intact. Unknown terms are listed as
 `Not found:` and anything PubMed ignored as `Warning:`. Use `--database pubmed` or
-`--database openalex` to search only one of them, and `--database arxiv` to add arXiv:
+`--database openalex` to search only one of them, `--database eric` for ERIC, and
+`--database arxiv` to add arXiv. ERIC does not say how it read the query, so its block has no
+translation line:
+
+```console
+$ biblio-search search examples/peer-tutoring-reading.toml --database eric --max 3
+Searching in: ERIC
+
+ERIC
+Equation: (subject_ss:"Peer Teaching" OR title:(peer AND tutor*) OR description:(peer AND tutor*) OR title:"peer assisted learning" OR description:"peer assisted learning" OR title:(cross AND age AND tutor*) OR description:(cross AND age AND tutor*)) AND (subject_ss:"Reading Comprehension" OR title:"reading comprehension" OR description:"reading comprehension" OR title:(reading AND skill*) OR description:(reading AND skill*)) AND (subject_ss:"Elementary School Students" OR title:(primary AND school*) OR description:(primary AND school*) OR title:(elementary AND school*) OR description:(elementary AND school*))
+Results: 160
+
+  1. ERIC EJ888659 (2010) The Impact of Cross-Age Peer Tutoring on Third and Sixth Graders' Reading Strategy Awareness, Reading Strategy Use, and Reading Comprehension | Middle Grades Research Journal [Journal Articles, Reports - Research]
+  2. ERIC EJ1257338 (2020) The Effects of a Peer-Tutoring Strategy on Children's e-Book Reading Comprehension | South African Journal of Education [Journal Articles, Reports - Research]
+  3. ERIC ED395269 (1995) Using Cross-Age Tutoring to Improve Reading Comprehension Skills in Elementary Language Arts Students. [Dissertations/Theses - Practicum Papers, Reports - Descriptive]
+
+Merged: 3 records retrieved, 0 duplicates removed (same DOI or PMID), 3 unique
+```
+
+For arXiv:
 
 ```console
 $ biblio-search search examples/neural-decoders-qec.toml --max 3 --database arxiv
@@ -596,6 +677,9 @@ gives you your own, ten times larger:
 ```bash
 export OPENALEX_API_KEY="..."         # optional, read from the environment only
 ```
+
+ERIC (Education Resources Information Center, from the Institute of Education Sciences of the
+U.S. Department of Education) needs neither key nor registration.
 
 arXiv needs neither key nor email. Its terms of use allow one request every three seconds,
 so a search waits its turn; if arXiv still answers with HTTP 429, it is limiting your address
@@ -828,9 +912,12 @@ The test suite never touches the network: NCBI responses are recorded under
 - **`Not valid yet: ...` above the equation in the web interface**: the question is
   incomplete (for example a condition without terms or a component without a description).
   The message names the field; the last valid preview stays visible, dimmed.
-- **`none of the chosen databases can be searched yet`**: only databases biblio-search
-  cannot query yet were chosen (for example `--database eric`). Add `--database openalex` or
-  `--database pubmed` to search one that it can.
+- **`ERIC rejected the query: Cannot parse ...`**: Solr could not read the equation; it
+  names the position. A hand-written ERIC field it does not know gives `undefined field`.
+- **`ERIC failed after 4 attempts: ... Network error communicating with endpoint`**: the
+  gateway in front of ERIC's API is having trouble; try again in a few minutes.
+- **`cannot read the ERIC thesaurus at ...`**: `ERIC_THESAURUS` must name the zip downloaded
+  from eric.ed.gov/?download or the XML inside it.
 - **`OpenAlex rejected the request (HTTP 400): ...`**: OpenAlex explains what it did not
   accept; the usual cause is a truncated term with fewer than three letters before the `*`.
 - **`OpenAlex asks to wait ... the daily budget is probably spent`**: the keyless budget is
