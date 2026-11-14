@@ -109,7 +109,7 @@ def equation_view(
         "database": database.value,
         "label": DATABASE_LABELS[database],
         "equation": dialect.render(question, options),
-        "notes": list(dialect_notes(question, dialect)),
+        "notes": list(dialect_notes(question, dialect, options)),
     }
 
 

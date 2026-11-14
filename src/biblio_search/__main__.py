@@ -55,6 +55,7 @@ from biblio_search.eric_thesaurus import (
     describe_source,
 )
 from biblio_search.eutils import MAX_RETMAX, EutilsClient, EutilsConfig
+from biblio_search.evidence import EVIDENCE_LADDER, EvidenceReport, evidence_ladder
 from biblio_search.export import to_csv, to_ris
 from biblio_search.mesh import MeshThesaurus
 from biblio_search.models import (
@@ -62,6 +63,7 @@ from biblio_search.models import (
     Database,
     DatabaseError,
     Discipline,
+    EvidenceLevel,
     ExportTarget,
     QuestionError,
     QuestionFormat,
@@ -132,6 +134,11 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="limit free text to records outside MEDLINE (more specific)",
     )
+    question.add_argument(
+        "--evidence-level",
+        choices=[level.value for level in EVIDENCE_LADDER],
+        help="limit PubMed to one level of evidence by publication type; overrides the file",
+    )
 
     choose = argparse.ArgumentParser(add_help=False)
     choose.add_argument(
@@ -197,6 +204,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help=f"none of the first {SCREENING_WINDOW} records was relevant (asks how to narrow)",
     )
     tune_parser.add_argument(
+        "--email", help="contact email sent to NCBI (default: NCBI_EMAIL environment variable)"
+    )
+
+    evidence = commands.add_parser(
+        "evidence",
+        parents=[question],
+        help="count the question in PubMed at every level of evidence (guidelines, systematic "
+        "reviews, original studies) and say where to start",
+    )
+    evidence.add_argument(
         "--email", help="contact email sent to NCBI (default: NCBI_EMAIL environment variable)"
     )
 
@@ -331,6 +348,11 @@ def _merge_options(file_options: StrategyOptions, args: argparse.Namespace) -> S
         repeat_controlled_as_free=file_options.repeat_controlled_as_free
         or bool(args.repeat_controlled_as_free),
         free_text_unindexed_only=file_options.free_text_unindexed_only or bool(args.unindexed_only),
+        evidence_level=(
+            file_options.evidence_level
+            if args.evidence_level is None
+            else EvidenceLevel(args.evidence_level)
+        ),
     )
 
 
@@ -540,7 +562,7 @@ def format_selection(
     for database in selection.searchable:
         dialect = DIALECTS[database]
         lines += ["", f"{DATABASE_LABELS[database]} equation: {dialect.render(question, options)}"]
-        lines += [f"Note: {note}" for note in dialect_notes(question, dialect)]
+        lines += [f"Note: {note}" for note in dialect_notes(question, dialect, options)]
     lines += ["", *format_exports(question, options)]
     return "\n".join(lines)
 
@@ -718,6 +740,27 @@ def format_tuning(database: Database, report: TuningReport, *, none_relevant: bo
     return "\n".join(lines)
 
 
+def format_evidence(report: EvidenceReport) -> str:
+    lines = [f"PubMed: {report.total:,} records without a level filter", f"  {report.equation}"]
+    lines += ["", "Levels of evidence, from the top of Haynes' pyramid down:"]
+    for item in report.levels:
+        lines += [f"  {item.label}: {item.count:,}", f"    {item.equation}"]
+    lines += ["", report.advice]
+    if report.recommended is not None:
+        lines.append(
+            f"Search that level with --evidence-level {report.recommended.value} "
+            f'(or evidence_level = "{report.recommended.value}" under [options]).'
+        )
+    return "\n".join(lines)
+
+
+async def _evidence(
+    question: StructuredQuestion, options: StrategyOptions, args: argparse.Namespace
+) -> EvidenceReport:
+    async with EutilsClient(_config(args)) as client:
+        return await evidence_ladder(question, options, client)
+
+
 async def _tune(
     question: StructuredQuestion,
     options: StrategyOptions,
@@ -763,9 +806,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             else:
                 dialect = DIALECTS[Database(args.dialect)]
                 print(dialect.render(question, options))
-                notes = dialect_notes(question, dialect)
+                notes = dialect_notes(question, dialect, options)
             for note in notes:
                 print(f"biblio-search: {note}", file=sys.stderr)
+            return 0
+        if args.command == "evidence":
+            print(format_evidence(asyncio.run(_evidence(question, options, args))))
             return 0
         if args.command == "check":
             decs_config = DecsConfig.from_env()

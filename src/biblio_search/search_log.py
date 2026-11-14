@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 
 from biblio_search import __version__
 from biblio_search.catalog import DATABASE_LABELS, DIALECTS, dialect_notes
+from biblio_search.evidence import EVIDENCE_LABELS
 from biblio_search.merge import MergedResults, merge_records
 from biblio_search.models import Database, StrategyOptions, StructuredQuestion
 from biblio_search.pipeline import SearchReport
@@ -50,6 +51,12 @@ class SearchLog:
             raise ValueError("the date of a search must carry its time zone")
 
 
+def _evidence_level(options: StrategyOptions) -> str:
+    if options.evidence_level is None:
+        return "every type of record"
+    return f"{EVIDENCE_LABELS[options.evidence_level].lower()} (PubMed publication types)"
+
+
 def build_log(
     question: StructuredQuestion,
     options: StrategyOptions,
@@ -61,7 +68,7 @@ def build_log(
 ) -> SearchLog:
     """Gather the reports of a search, in database order, and merge their records."""
     runs = tuple(
-        DatabaseRun(database, report, dialect_notes(question, DIALECTS[database]))
+        DatabaseRun(database, report, dialect_notes(question, DIALECTS[database], options))
         for database, report in reports
     )
     return SearchLog(
@@ -140,6 +147,7 @@ def render_log(log: SearchLog) -> str:
         f"- Headings repeated as free text: {_yes_no(log.options.repeat_controlled_as_free)}",
         f"- Free text limited to records outside MEDLINE: "
         f"{_yes_no(log.options.free_text_unindexed_only)}",
+        f"- Level of evidence: {_evidence_level(log.options)}",
         "",
         "## Databases",
         "",

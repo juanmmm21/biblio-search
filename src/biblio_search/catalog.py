@@ -78,10 +78,23 @@ def foreign_note(question: StructuredQuestion, dialect: QueryDialect) -> str | N
     return f"{label} does not index these headings, so they are searched as free text: {headings}"
 
 
-def dialect_notes(question: StructuredQuestion, dialect: QueryDialect) -> tuple[str, ...]:
+def evidence_note(dialect: QueryDialect, options: StrategyOptions) -> tuple[str, ...]:
+    """Warn that the level of evidence chosen only filters PubMed."""
+    if options.evidence_level is None or dialect.name == Database.PUBMED.value:
+        return ()
+    label = _LABELS_BY_NAME.get(dialect.name, dialect.name)
+    level = options.evidence_level.value.replace("_", " ")
+    return (
+        f"the level of evidence ({level}) filters PubMed only: {label} gets every type of record",
+    )
+
+
+def dialect_notes(
+    question: StructuredQuestion, dialect: QueryDialect, options: StrategyOptions
+) -> tuple[str, ...]:
     """Everything the user should know about how ``dialect`` searches ``question``."""
     note = foreign_note(question, dialect)
-    return ((note,) if note else ()) + dialect.notes(question)
+    return ((note,) if note else ()) + dialect.notes(question) + evidence_note(dialect, options)
 
 
 def export_reasons(question: StructuredQuestion) -> dict[ExportTarget, tuple[str, ...]]:
@@ -111,4 +124,6 @@ def export_notes(
 ) -> tuple[str, ...]:
     """Everything the user should know before pasting the equation into ``target``."""
     dialect = EXPORT_DIALECTS[target]
-    return dialect_notes(question, dialect) + unindexed_note(EXPORT_LABELS[target], options)
+    return dialect_notes(question, dialect, options) + unindexed_note(
+        EXPORT_LABELS[target], options
+    )
