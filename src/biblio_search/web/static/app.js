@@ -66,7 +66,7 @@ function emptyQuestion(format) {
     arxiv_categories: [],
     components: ROLES[format].map(emptyComponent),
     exclusions: [],
-    options: { repeat_controlled_as_free: false, free_text_unindexed_only: false },
+    options: { repeat_controlled_as_free: false, free_text_unindexed_only: false, evidence_level: "" },
   };
 }
 
@@ -113,6 +113,7 @@ function toData(q) {
   const options = {};
   if (q.options.repeat_controlled_as_free) options.repeat_controlled_as_free = true;
   if (q.options.free_text_unindexed_only) options.free_text_unindexed_only = true;
+  if (q.options.evidence_level) options.evidence_level = q.options.evidence_level;
   if (Object.keys(options).length) data.options = options;
   return data;
 }
@@ -158,6 +159,7 @@ function fromData(data) {
     options: {
       repeat_controlled_as_free: Boolean(data.options && data.options.repeat_controlled_as_free),
       free_text_unindexed_only: Boolean(data.options && data.options.free_text_unindexed_only),
+      evidence_level: (data.options && data.options.evidence_level) || "",
     },
   };
   if (format !== "concepts") {
@@ -291,6 +293,7 @@ function renderForm() {
   if (document.activeElement !== categories) categories.value = state.arxiv_categories.join(", ");
   $("opt-repeat").checked = state.options.repeat_controlled_as_free;
   $("opt-unindexed").checked = state.options.free_text_unindexed_only;
+  $("opt-evidence").value = state.options.evidence_level;
   const components = state.components.map(renderComponent);
   if (state.format === "concepts") {
     const add = el("button", "button add-concept", "+ Concept");
@@ -366,6 +369,10 @@ function setupStaticForm() {
   });
   $("opt-unindexed").addEventListener("change", (e) => {
     state.options.free_text_unindexed_only = e.target.checked;
+    schedulePreview();
+  });
+  $("opt-evidence").addEventListener("change", (e) => {
+    state.options.evidence_level = e.target.value;
     schedulePreview();
   });
   $("add-exclusion").addEventListener("click", () => {
@@ -1176,6 +1183,51 @@ async function runTune() {
   }
 }
 
+function useEvidenceLevel(level) {
+  state.options.evidence_level = level;
+  $("opt-evidence").value = level;
+  refreshPreview();
+}
+
+function renderEvidence(report) {
+  const section = el("section", "db-result evidence");
+  section.append(el("h3", "db-result-title", `PubMed · ${formatCount(report.total)} records without a level filter`));
+  const list = el("ol", "tune-list");
+  for (const item of report.levels) {
+    const row = el("li", "tune-item" + (item.level === report.recommended ? " recommended" : ""));
+    row.title = item.equation;
+    row.append(el("span", "tune-label", item.label), el("span", "tune-count", formatCount(item.count)));
+    const use = el("button", "button small", item.level === state.options.evidence_level ? "In use" : "Use");
+    use.type = "button";
+    use.disabled = item.count === 0 || item.level === state.options.evidence_level;
+    use.title = "Limit the PubMed equation to this level";
+    use.addEventListener("click", () => {
+      useEvidenceLevel(item.level);
+      renderEvidence(report);
+    });
+    row.append(use);
+    list.append(row);
+  }
+  section.append(list);
+  const advice = el("div", report.recommended ? "banner advice" : "banner warn advice");
+  advice.append(el("p", null, report.advice));
+  section.append(advice);
+  $("evidence").replaceChildren(section);
+}
+
+async function runEvidence() {
+  const button = $("evidence-button");
+  button.disabled = true;
+  $("evidence").replaceChildren(el("p", "empty", "Counting every level in PubMed…"));
+  try {
+    renderEvidence(await postJson("/api/evidence", toData(state)));
+  } catch (error) {
+    $("evidence").replaceChildren(el("div", "banner error", error.message));
+  } finally {
+    button.disabled = false;
+  }
+}
+
 // --- Borrador con el modelo local ---
 
 function setDraftStatus(text, isError = false) {
@@ -1263,6 +1315,7 @@ async function init() {
   setupStaticForm();
   $("search-button").addEventListener("click", runSearch);
   $("tune-button").addEventListener("click", runTune);
+  $("evidence-button").addEventListener("click", runEvidence);
   $("check-button").addEventListener("click", runCheck);
   $("apply-check").addEventListener("click", () => {
     if (lastCheck) loadQuestion(lastCheck.fixed);

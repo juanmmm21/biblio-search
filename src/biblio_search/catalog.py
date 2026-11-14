@@ -85,7 +85,7 @@ def evidence_note(dialect: QueryDialect, options: StrategyOptions) -> tuple[str,
     label = _LABELS_BY_NAME.get(dialect.name, dialect.name)
     level = options.evidence_level.value.replace("_", " ")
     return (
-        f"the level of evidence ({level}) filters PubMed only: {label} gets every type of record",
+        f"{label} gets every type of record: the level of evidence ({level}) filters PubMed only",
     )
 
 

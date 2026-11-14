@@ -835,6 +835,47 @@ def test_tune_reports_errors_as_events() -> None:
     assert events[-1] == ("error", {"message": "NCBI is down"})
 
 
+def test_evidence_counts_every_level_in_pubmed() -> None:
+    ncbi = FakeNcbi()
+    data = {**example_data(), "options": {"evidence_level": "guidelines"}}
+    with make_client(ncbi) as test_client:
+        response = test_client.post("/api/evidence", json=data)
+
+    assert response.status_code == 200
+    report = response.json()
+    assert report["total"] == 2808
+    assert [level["level"] for level in report["levels"]] == [
+        "guidelines",
+        "systematic_reviews",
+        "original_studies",
+    ]
+    assert report["levels"][1]["equation"].endswith(") AND systematic[sb]")
+    assert report["recommended"] == "guidelines"
+    assert "Start with" in report["advice"]
+    # La escalera ignora el nivel ya elegido: el primer recuento va sin filtro.
+    assert not ncbi.searched[0][0].endswith("[pt])")
+    assert all(retmax == 0 for _, retmax in ncbi.searched)
+
+
+def test_evidence_reports_ncbi_errors() -> None:
+    with make_client(FakeNcbi(search_error=EutilsError("NCBI is down"))) as test_client:
+        response = test_client.post("/api/evidence", json=example_data())
+    assert response.status_code == 502
+    assert response.json() == {"error": "NCBI is down"}
+
+
+def test_preview_warns_that_the_level_only_filters_pubmed(client: TestClient) -> None:
+    data = {
+        **example_data(),
+        "databases": ["pubmed", "openalex"],
+        "options": {"evidence_level": "systematic_reviews"},
+    }
+    preview = client.post("/api/preview", json=data).json()
+    pubmed, openalex = preview["equations"]
+    assert pubmed["equation"].endswith(" AND systematic[sb]")
+    assert any("filters PubMed only" in note for note in openalex["notes"])
+
+
 class RecordedOllama:
     """The recorded qwen3:8b answers for the fibromyalgia question."""
 

@@ -39,6 +39,7 @@ from biblio_search.eric_thesaurus import (
     describe_source,
 )
 from biblio_search.eutils import MAX_RETMAX
+from biblio_search.evidence import evidence_ladder
 from biblio_search.export import to_csv, to_ris
 from biblio_search.mesh import JsonBackend, MeshThesaurus
 from biblio_search.models import (
@@ -92,6 +93,7 @@ from biblio_search.web.views import (
     check_view,
     count_view,
     entry_view,
+    evidence_view,
     flow_view,
     merged_view,
     preview_view,
@@ -317,6 +319,12 @@ def create_app(
             media_type="application/toml",
             headers={"Content-Disposition": 'attachment; filename="question.toml"'},
         )
+
+    @app.post("/api/evidence")
+    async def evidence(data: QuestionBody) -> dict[str, object]:
+        # Son cuatro recuentos en PubMed, unos segundos: JSON normal, sin SSE.
+        question, options = parse_question(data)
+        return evidence_view(await evidence_ladder(question, options, client()))
 
     @app.post("/api/check")
     async def check(data: QuestionBody) -> dict[str, object]:

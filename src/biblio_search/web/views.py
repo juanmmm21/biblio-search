@@ -21,6 +21,7 @@ from biblio_search.catalog import (
 )
 from biblio_search.check import QuestionCheck, scope_note
 from biblio_search.decs import LICENCE_URL
+from biblio_search.evidence import EvidenceReport
 from biblio_search.models import (
     ArticleSummary,
     Condition,
@@ -213,6 +214,25 @@ def check_view(result: QuestionCheck, *, decs: bool = False, source: str | None 
             for item in result.conditions
             if item.suggested_synonyms
         ],
+    }
+
+
+def evidence_view(report: EvidenceReport) -> JsonDict:
+    """The question counted in PubMed at every level of evidence, top of the pyramid first."""
+    return {
+        "equation": report.equation,
+        "total": report.total,
+        "levels": [
+            {
+                "level": item.level.value,
+                "label": item.label,
+                "equation": item.equation,
+                "count": item.count,
+            }
+            for item in report.levels
+        ],
+        "recommended": report.recommended.value if report.recommended else None,
+        "advice": report.advice,
     }
 
 

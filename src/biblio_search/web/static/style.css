@@ -339,6 +339,8 @@ a.button { text-decoration: none; display: inline-block; }
 .tune-item:first-child { border-top: 0; }
 .tune-label { font-weight: 500; }
 .tune-count { margin-left: auto; font-variant-numeric: tabular-nums; }
+.tune-item.recommended .tune-label { color: var(--accent); font-weight: 700; }
+.banner.advice:not(.warn) { background: var(--accent-soft); color: var(--accent); margin-top: 6px; }
 .lever.sensitive .tag { background: var(--free-soft); color: var(--free); }
 .lever.specific .tag { background: var(--mesh-soft); color: var(--mesh); }
 .advice p { margin: 0 0 6px; font-weight: 600; }
