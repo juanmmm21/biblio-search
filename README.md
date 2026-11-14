@@ -1,7 +1,8 @@
 # biblio-search
 
 Turn a research question from any discipline into a rigorous, reproducible search strategy,
-and run it in PubMed, ERIC, arXiv and OpenAlex.
+and run it in PubMed, ERIC, arXiv and OpenAlex, with the same equation written for CINAHL,
+Scopus and Web of Science.
 
 biblio-search models the bibliographic search method taught to health-science students, and
 extends it to any field:
@@ -65,6 +66,10 @@ University of Jaén) in *"Cómo aprender (y enseñar) a realizar búsquedas en C
 9. **Snowball from what you include.** Del Pino's sixth step: the works an included record
    cites and the works that cite it are candidates the equation may have missed. biblio-search
    follows both through OpenAlex, for every discipline, and adds them to the screening.
+
+Del Pino's rule of a single equation adapted to every database also covers the subscription
+databases: biblio-search writes the equation for CINAHL, Scopus and Web of Science, with
+their own field codes, for you to paste there through your library. It never queries them.
 
 ## Engineering highlights
 
@@ -199,6 +204,7 @@ biblio-search/
 │   ├── openalex_query.py # OpenAlex equation: unstemmed title/abstract search, proximity
 │   ├── eric_query.py     # ERIC equation: exact descriptors, title/description, Solr quoting
 │   ├── arxiv_query.py    # arXiv equation: ti/abs fields, categories, ANDNOT
+│   ├── subscription_query.py # CINAHL, Scopus and Web of Science equations, never searched
 │   ├── question_file.py  # TOML question files -> validated domain objects
 │   ├── ratelimit.py      # async requests-per-second limiter
 │   ├── eutils.py         # NCBI E-utilities client (esearch, esummary) and response parsing
@@ -263,7 +269,8 @@ The page opens in your browser on a free port of `127.0.0.1` (`--port` to fix it
   MeSH or ERIC headings with their scope, and free text with its field.
 - **Watch the strategy take shape**: the highlighted equation with a copy button, Del Pino's
   logic grid (one row per condition, OR inside a row, AND between rows, exclusions with NOT),
-  the chosen databases with the reasons, and the question tree.
+  the chosen databases with the reasons, and the question tree. Under the equations, the
+  same strategy written for CINAHL, Scopus and Web of Science, ready to copy.
 - **Check the headings** against MeSH and ERIC: each one is confirmed, corrected or flagged, with suggested
   synonyms you can add with a click and a button that applies the corrections.
 - **Tune** the strategy: the count of every condition on its own and without it, and of
@@ -296,6 +303,8 @@ The page opens in your browser on a free port of `127.0.0.1` (`--port` to fix it
 ![Screening: the flow diagram with identified, duplicate, pending, maybe, excluded (by reason) and included records, and each record with its decision and reason](docs/screenshots/screening.png)
 
 ![Snowballing from the screening panel: records identified by searches and by four snowballing rounds, and the last round following one included record through OpenAlex](docs/screenshots/snowball.png)
+
+![The equations of a health question: PubMed and OpenAlex, which biblio-search searches, and CINAHL, Scopus and Web of Science, written to be pasted there](docs/screenshots/subscription.png)
 
 ### Question files and the command line
 
@@ -540,6 +549,9 @@ OpenAlex equation: (anxiety OR depress*) AND (caregiv* OR carer*) AND (aged OR e
 Note: OpenAlex does not index these headings, so they are searched as free text: Anxiety (MeSH), Depression (MeSH), Caregivers (MeSH), Aged (MeSH)
 ```
 
+The output goes on with the subscription databases, described in
+[Equations for subscription databases](#equations-for-subscription-databases).
+
 The rules are deterministic, so the same question always gets the same databases:
 
 - **PubMed** when the question uses MeSH headings, is written as SPC or PICO, or its
@@ -605,6 +617,50 @@ Note: arXiv takes no wildcard inside a phrase, so these are searched as the phra
 
 OpenAlex equation: ("neural network*"~0 OR "deep learning" OR "machine learning" OR "neural decoder*"~0) AND ("quantum error correct*"~0 OR "surface code*"~0 OR "stabilizer code*"~0) AND (decod*)
 ```
+
+### Equations for subscription databases
+
+CINAHL, Scopus and Web of Science need an institutional licence, so biblio-search never sends
+them a request: it writes their equation from the same question, to be pasted into their
+advanced search. `databases` lists them after the searched ones, with the reasons; CINAHL
+(nursing and allied health) is only offered for health questions, Scopus and Web of Science
+for every discipline:
+
+```console
+$ biblio-search databases examples/caregiver-burden.toml
+...
+Subscription databases (biblio-search does not search them; paste the equation):
+
+  CINAHL
+    - nursing and allied health database
+    - the question uses MeSH headings
+    - SPC is a health-science question format
+  Equation: (MM "Anxiety" OR MM "Depression+" OR TI anxiety OR AB anxiety OR TI depress* OR AB depress*) AND (MM "Caregivers+" OR TI caregiv* OR AB caregiv* OR TI carer* OR AB carer*) AND (MH "Aged+" OR TI elder* OR AB elder* OR TI "older people" OR AB "older people") AND (TI burden* OR AB burden* OR TI overload* OR AB overload* OR TI strain* OR AB strain*)
+  Note: CINAHL Subject Headings derive from MeSH but not all of them match: look these up in CINAHL Headings before running the search: Anxiety, Depression, Caregivers, Aged
+
+  Scopus
+    - multidisciplinary citation database
+  Equation: TITLE-ABS-KEY(anxiety OR depress*) AND TITLE-ABS-KEY(caregiv* OR carer*) AND TITLE-ABS-KEY(aged OR elder* OR "older people") AND TITLE-ABS-KEY(burden* OR overload* OR strain*)
+  ...
+```
+
+`build --dialect cinahl`, `--dialect scopus` and `--dialect wos` print a single one. How each
+database receives the question:
+
+- **CINAHL** (EBSCOhost): the field code goes in front of the term, as Del Pino writes it.
+  Headings use `MH`, or `MM` for major ones, and a trailing `+` explodes them, so
+  `[mh]`, `[mj]`, `[mh:noexp]` and `[mj:noexp]` become `MH "X+"`, `MM "X+"`, `MH "X"` and
+  `MM "X"`. CINAHL Subject Headings are built on MeSH but are not identical, so every heading
+  comes with a note to confirm it in CINAHL Headings. Free text is searched as `TI x OR AB x`,
+  the equivalent of `[tiab]`.
+- **Scopus**: the terms of each condition go together in `TITLE-ABS-KEY(...)` (or `TITLE(...)`
+  for title-only terms) and exclusions use `AND NOT`.
+- **Web of Science**: the same with `TS=(...)` (topic) and `TI=(...)`.
+
+Phrases are always quoted, since unquoted words mean a phrase or separate words depending on
+the database, and truncation is kept inside the quotes. Scopus and Web of Science have no
+thesaurus of their own, so headings are searched as free text there, and `NOT MEDLINE[sb]`
+cannot be carried over to any of the three: when it is on, a note says so.
 
 ### Running the search
 
