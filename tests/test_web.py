@@ -208,6 +208,12 @@ def test_preview_draws_tree_grid_databases_and_equation(client: TestClient) -> N
     assert openalex_equation["label"] == "OpenAlex"
     assert openalex_equation["equation"].startswith("(anxiety OR depress*) AND")
     assert "Caregivers (MeSH)" in openalex_equation["notes"][0]
+    cinahl, scopus, wos = preview["exports"]
+    assert (cinahl["database"], cinahl["label"]) == ("cinahl", "CINAHL")
+    assert cinahl["equation"].startswith('(MM "Anxiety" OR')
+    assert "the question uses MeSH headings" in cinahl["reasons"]
+    assert scopus["equation"].startswith("TITLE-ABS-KEY(anxiety OR depress*)")
+    assert wos["label"] == "Web of Science"
 
 
 def test_without_an_openalex_client_it_is_not_searchable() -> None:

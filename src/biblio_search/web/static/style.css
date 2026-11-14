@@ -228,6 +228,10 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent-soft
 .grid-terms { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 
 .equation-block + .equation-block { margin-top: 14px; }
+.exports { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 12px; }
+.exports > summary { cursor: pointer; font: 600 14px var(--sans); }
+.exports > .hint { margin: 6px 0 12px; }
+.equation-block > .hint { margin: 4px 0 6px; }
 .equation-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
 .equation-db { font-weight: 600; }
 .equation-pre {

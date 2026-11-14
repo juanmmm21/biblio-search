@@ -517,13 +517,17 @@ function renderSelection(selection) {
   $("selection").replaceChildren(el("p", "hint", how), list);
 }
 
+// Códigos de campo de CINAHL, Scopus y Web of Science (van delante del término).
+const FIELD_CODES = /^(?:MH|MM|TI|AB|TITLE-ABS-KEY|TITLE|TS=|TI=)$/;
+
 function highlight(equation) {
   const out = el("code", "equation");
-  const pattern = /("[^"]*"|\[[^\]]+\]|\b(?:AND|OR|NOT)\b|[()]|\s+|[^\s()"[]+)/g;
+  const pattern = /("[^"]*"|\[[^\]]+\]|\b(?:AND|OR|NOT)\b|TITLE-ABS-KEY|T[SI]=|[()]|\s+|[^\s()"[]+)/g;
   for (const [token] of equation.matchAll(pattern)) {
     let cls = null;
     if (/^(AND|OR|NOT)$/.test(token)) cls = `op-${token.toLowerCase()}`;
     else if (token === "(" || token === ")") cls = "paren";
+    else if (FIELD_CODES.test(token)) cls = "ftag free";
     else if (token.startsWith("[")) {
       const tag = token.slice(1, -1);
       cls = CONTROLLED_TAGS.has(tag) ? "ftag controlled" : tag === "sb" ? "ftag filter" : "ftag free";
@@ -533,38 +537,49 @@ function highlight(equation) {
   return out;
 }
 
-function renderEquations(equations) {
+function equationBlock(item) {
+  const block = el("div", "equation-block");
+  const head = el("div", "equation-head");
+  head.append(el("span", "equation-db", item.label));
+  const copy = el("button", "button small", "Copy");
+  copy.type = "button";
+  copy.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(item.equation);
+      copy.textContent = "Copied";
+    } catch {
+      copy.textContent = "Copy failed";
+    }
+    setTimeout(() => { copy.textContent = "Copy"; }, 1500);
+  });
+  head.append(copy);
+  const pre = el("pre", "equation-pre");
+  pre.append(highlight(item.equation));
+  block.append(head);
+  if (item.reasons) block.append(el("p", "hint", item.reasons.join("; ")));
+  block.append(pre);
+  for (const note of item.notes) block.append(el("p", "note", note));
+  return block;
+}
+
+function renderEquations(equations, exports) {
   const box = $("equations");
-  if (!equations.length) {
-    box.replaceChildren(el("p", "empty", "None of the chosen databases has an equation yet."));
-    return;
+  const blocks = equations.length
+    ? equations.map(equationBlock)
+    : [el("p", "empty", "None of the chosen databases has an equation yet.")];
+  if (exports.length) {
+    // Las bases de suscripción nunca se consultan: solo se ofrece su ecuación para pegarla.
+    const section = el("details", "exports");
+    section.append(el("summary", null, `Subscription databases (${exports.map((e) => e.label).join(", ")})`));
+    section.append(el("p", "hint", "biblio-search does not search these: copy each equation into the database through your library."));
+    section.append(...exports.map(equationBlock));
+    blocks.push(section);
   }
-  box.replaceChildren(...equations.map((item) => {
-    const block = el("div", "equation-block");
-    const head = el("div", "equation-head");
-    head.append(el("span", "equation-db", item.label));
-    const copy = el("button", "button small", "Copy");
-    copy.type = "button";
-    copy.addEventListener("click", async () => {
-      try {
-        await navigator.clipboard.writeText(item.equation);
-        copy.textContent = "Copied";
-      } catch {
-        copy.textContent = "Copy failed";
-      }
-      setTimeout(() => { copy.textContent = "Copy"; }, 1500);
-    });
-    head.append(copy);
-    const pre = el("pre", "equation-pre");
-    pre.append(highlight(item.equation));
-    block.append(head, pre);
-    for (const note of item.notes) block.append(el("p", "note", note));
-    return block;
-  }));
+  box.replaceChildren(...blocks);
 }
 
 function renderPreview(preview) {
-  renderEquations(preview.equations);
+  renderEquations(preview.equations, preview.exports);
   renderGrid(preview.grid);
   renderSelection(preview.selection);
   renderTree(preview.tree);

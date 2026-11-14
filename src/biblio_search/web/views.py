@@ -11,9 +11,13 @@ from collections.abc import Collection
 from biblio_search.catalog import (
     DATABASE_LABELS,
     DIALECTS,
+    EXPORT_DIALECTS,
+    EXPORT_LABELS,
     RECORD_ID_LABELS,
     VOCABULARY_LABELS,
     dialect_notes,
+    export_notes,
+    export_reasons,
 )
 from biblio_search.check import QuestionCheck, scope_note
 from biblio_search.decs import LICENCE_URL
@@ -21,6 +25,7 @@ from biblio_search.models import (
     ArticleSummary,
     Condition,
     Database,
+    ExportTarget,
     SearchResult,
     StrategyOptions,
     StructuredQuestion,
@@ -108,6 +113,22 @@ def equation_view(
     }
 
 
+def export_view(
+    target: ExportTarget,
+    reasons: tuple[str, ...],
+    question: StructuredQuestion,
+    options: StrategyOptions,
+) -> JsonDict:
+    """The equation of a subscription database, which the user pastes there by hand."""
+    return {
+        "database": target.value,
+        "label": EXPORT_LABELS[target],
+        "reasons": list(reasons),
+        "equation": EXPORT_DIALECTS[target].render(question, options),
+        "notes": list(export_notes(question, target, options)),
+    }
+
+
 def preview_view(
     question: StructuredQuestion,
     options: StrategyOptions,
@@ -123,6 +144,10 @@ def preview_view(
             equation_view(database, question, options)
             for database in selection.databases
             if database in DIALECTS
+        ],
+        "exports": [
+            export_view(target, reasons, question, options)
+            for target, reasons in export_reasons(question).items()
         ],
     }
 
