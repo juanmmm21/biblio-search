@@ -531,10 +531,11 @@ def test_databases_explains_the_automatic_choice(capsys: pytest.CaptureFixture[s
     )
     assert "\nPubMed equation: (Anxiety[mj:noexp] OR" in out
     assert "\nOpenAlex equation: (anxiety OR depress*) AND" in out
-    assert out.endswith(
+    assert (
         "\nNote: OpenAlex does not index these headings, so they are searched as free text: "
-        "Anxiety (MeSH), Depression (MeSH), Caregivers (MeSH), Aged (MeSH)\n"
-    )
+        "Anxiety (MeSH), Depression (MeSH), Caregivers (MeSH), Aged (MeSH)\n\n"
+        "Subscription databases"
+    ) in out
 
 
 def test_databases_for_an_education_question(capsys: pytest.CaptureFixture[str]) -> None:
@@ -797,3 +798,24 @@ def test_draft_without_ollama_says_so(
 
     assert main(["draft", "una pregunta"]) == 1
     assert "Ollama is not running" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("dialect", "start"),
+    [("cinahl", '(MM "Anxiety" OR'), ("scopus", "TITLE-ABS-KEY(anxiety OR"), ("wos", "TS=(")],
+)
+def test_build_writes_subscription_equations(
+    dialect: str, start: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["build", str(EXAMPLE), "--dialect", dialect]) == 0
+    captured = capsys.readouterr()
+    assert captured.out.startswith(start)
+    assert captured.err.startswith("biblio-search: ")
+
+
+def test_databases_lists_the_subscription_equations(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["databases", str(EXAMPLE)]) == 0
+    out = capsys.readouterr().out
+    assert "Subscription databases (biblio-search does not search them" in out
+    assert '  Equation: (MM "Anxiety" OR' in out
+    assert "  Equation: TS=(anxiety OR depress*)" in out

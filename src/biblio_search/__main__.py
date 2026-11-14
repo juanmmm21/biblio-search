@@ -22,10 +22,14 @@ from biblio_search.assistant import (
 from biblio_search.catalog import (
     DATABASE_LABELS,
     DIALECTS,
+    EXPORT_DIALECTS,
+    EXPORT_LABELS,
     RECORD_ID_LABELS,
     SEARCHABLE,
     VOCABULARY_LABELS,
     dialect_notes,
+    export_notes,
+    export_reasons,
     heading_label,
 )
 from biblio_search.check import (
@@ -58,6 +62,7 @@ from biblio_search.models import (
     Database,
     DatabaseError,
     Discipline,
+    ExportTarget,
     QuestionError,
     QuestionFormat,
     StrategyOptions,
@@ -143,7 +148,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "build", parents=[question], help="print the search equation of a question file"
     )
     build.add_argument(
-        "--dialect", choices=[database.value for database in DIALECTS], default=Database.PUBMED
+        "--dialect",
+        choices=[database.value for database in DIALECTS]
+        + [target.value for target in EXPORT_DIALECTS],
+        default=Database.PUBMED,
+        help="database to write the equation for; cinahl, scopus and wos are only written, "
+        "never searched",
     )
 
     commands.add_parser(
@@ -531,7 +541,19 @@ def format_selection(
         dialect = DIALECTS[database]
         lines += ["", f"{DATABASE_LABELS[database]} equation: {dialect.render(question, options)}"]
         lines += [f"Note: {note}" for note in dialect_notes(question, dialect)]
+    lines += ["", *format_exports(question, options)]
     return "\n".join(lines)
+
+
+def format_exports(question: StructuredQuestion, options: StrategyOptions) -> list[str]:
+    """The equations to paste into the subscription databases, which are never searched."""
+    lines = ["Subscription databases (biblio-search does not search them; paste the equation):"]
+    for target, reasons in export_reasons(question).items():
+        lines += ["", f"  {EXPORT_LABELS[target]}"]
+        lines += [f"    - {reason}" for reason in reasons]
+        lines.append(f"  Equation: {EXPORT_DIALECTS[target].render(question, options)}")
+        lines += [f"  Note: {note}" for note in export_notes(question, target, options)]
+    return lines
 
 
 _SEARCHABLE_HINT = "add --database with one of " + ", ".join(sorted(d.value for d in SEARCHABLE))
@@ -734,9 +756,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         question, file_options = load_question(args.question_file)
         options = _merge_options(file_options, args)
         if args.command == "build":
-            dialect = DIALECTS[Database(args.dialect)]
-            print(dialect.render(question, options))
-            for note in dialect_notes(question, dialect):
+            if args.dialect in {target.value for target in ExportTarget}:
+                target = ExportTarget(args.dialect)
+                print(EXPORT_DIALECTS[target].render(question, options))
+                notes = export_notes(question, target, options)
+            else:
+                dialect = DIALECTS[Database(args.dialect)]
+                print(dialect.render(question, options))
+                notes = dialect_notes(question, dialect)
+            for note in notes:
                 print(f"biblio-search: {note}", file=sys.stderr)
             return 0
         if args.command == "check":
