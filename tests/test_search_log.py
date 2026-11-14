@@ -9,7 +9,7 @@ from conftest import load_fixture
 
 from biblio_search.catalog import DIALECTS, SEARCHABLE
 from biblio_search.eutils import parse_search, parse_summaries
-from biblio_search.models import Database, SearchResult, StrategyOptions
+from biblio_search.models import Database, EvidenceLevel, SearchResult, StrategyOptions
 from biblio_search.openalex import parse_search as parse_openalex_search
 from biblio_search.openalex import parse_work
 from biblio_search.pipeline import SearchReport
@@ -120,6 +120,22 @@ def test_not_searched_databases_and_remarks_are_listed() -> None:
     assert "- Not found: qwz" in text and "- Warning: odd" in text
     assert "How PubMed understood it:" not in text
     assert "- Headings repeated as free text: yes" in text
+    assert "- Level of evidence: every type of record" in text
+
+
+def test_log_names_the_level_of_evidence() -> None:
+    question, _options = load_question(EXAMPLE)
+    selection = select_databases(question, SEARCHABLE, [Database.PUBMED])
+    report = SearchReport(
+        equation="x", result=SearchResult(count=0, ids=(), query_translation=""), records=()
+    )
+    options = StrategyOptions(evidence_level=EvidenceLevel.GUIDELINES)
+    log = build_log(
+        question, options, selection, [(Database.PUBMED, report)], max_records=20, searched_at=WHEN
+    )
+    assert "- Level of evidence: clinical practice guidelines (PubMed publication types)" in (
+        render_log(log)
+    )
 
 
 def test_fence_outgrows_backticks_in_the_equation() -> None:

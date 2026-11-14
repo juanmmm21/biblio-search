@@ -20,10 +20,10 @@ from biblio_search.check import QuestionCheck
 from biblio_search.decs import DecsClient, DecsConfig, DecsDescriptor, DecsSuggestion
 from biblio_search.eric import EricClient, EricConfig
 from biblio_search.eutils import EutilsClient, EutilsConfig
-from biblio_search.models import ArticleSummary, Database, Term, Vocabulary
+from biblio_search.models import ArticleSummary, Database, EvidenceLevel, Term, Vocabulary
 from biblio_search.openalex import OpenAlexClient, OpenAlexConfig
 from biblio_search.pipeline import SearchBackend
-from biblio_search.pubmed_query import PubMedDialect
+from biblio_search.pubmed_query import PubMedDialect, apply_evidence_level
 from biblio_search.question_file import load_question
 from biblio_search.ratelimit import RateLimiter
 from biblio_search.screening import Decision, ScreeningStore
@@ -47,6 +47,15 @@ def test_build_flags_enable_options(capsys: pytest.CaptureFixture[str]) -> None:
     out = capsys.readouterr().out
     assert "NOT MEDLINE[sb]" in out
     assert "aged[tiab]" in out
+
+
+def test_build_evidence_level_flag_overrides_the_file(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main(["build", str(EXAMPLE), "--evidence-level", "guidelines"]) == 0
+    out = capsys.readouterr().out.strip()
+    assert out.startswith("((Anxiety[mj:noexp] OR")
+    assert out.endswith(") AND (Guideline[pt] OR Practice Guideline[pt])")
 
 
 def test_build_reports_errors_on_stderr(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -718,6 +727,35 @@ def test_tune_with_none_relevant_asks_how_to_narrow(
     assert "None of the first 50 records is relevant" in out
     assert "  - add a condition the relevant records must meet" in out
     assert "--none-relevant." not in out
+
+
+def test_evidence_prints_the_ladder_and_where_to_start(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    question, options = load_question(EXAMPLE)
+    plain = PubMedDialect().render(question, options)
+    guidelines = apply_evidence_level(plain, EvidenceLevel.GUIDELINES)
+    backend = CountingBackend({plain: 2816, guidelines: 2})
+    monkeypatch.setattr(cli, "EutilsClient", lambda config: _Opened(backend))
+
+    assert main(["evidence", str(EXAMPLE)]) == 0
+
+    out = capsys.readouterr().out
+    assert out.startswith(f"PubMed: 2,816 records without a level filter\n  {plain}\n")
+    assert "\n  Clinical practice guidelines: 2\n" in out
+    assert "Start with the 2 guidelines" in out
+    assert out.rstrip().endswith('(or evidence_level = "guidelines" under [options]).')
+
+
+class _Opened:
+    def __init__(self, backend: CountingBackend) -> None:
+        self.backend = backend
+
+    async def __aenter__(self) -> CountingBackend:
+        return self.backend
+
+    async def __aexit__(self, *exc: object) -> None:
+        return None
 
 
 def _patch_ollama(monkeypatch: pytest.MonkeyPatch, seen: list[dict[str, object]]) -> None:

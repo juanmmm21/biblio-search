@@ -9,6 +9,7 @@ from biblio_search.models import (
     ControlledScope,
     Database,
     Discipline,
+    EvidenceLevel,
     FreeTextField,
     QuestionError,
     QuestionFormat,
@@ -98,6 +99,7 @@ def _with(**changes: object) -> dict[str, object]:
         (_with(question=3), "question must be a string"),
         (_with(components="population"), "components must be a list"),
         (_with(options={"verbose": True}), "unknown options: verbose"),
+        (_with(options={"evidence_level": "rcts"}), "options.evidence_level must be one of"),
         (_with(options={"free_text_unindexed_only": "yes"}), "must be true or false"),
         (
             _with(components=[{"role": "population", "description": "x", "conditions": [1]}]),
@@ -207,6 +209,15 @@ def test_dump_question_round_trips_every_option() -> None:
     assert parse_question_text(text) == (question, options)
     assert "[options]\nrepeat_controlled_as_free = true\n" in text
     assert '{ term = "older adult*", field = "title" }' in text
+
+
+def test_evidence_level_is_read_and_written() -> None:
+    question, options = parse_question(_with(options={"evidence_level": "systematic_reviews"}))
+    assert options.evidence_level is EvidenceLevel.SYSTEMATIC_REVIEWS
+    text = dump_question(question, options)
+    assert 'evidence_level = "systematic_reviews"' in text
+    assert parse_question_text(text) == (question, options)
+    assert parse_question(MINIMAL)[1].evidence_level is None
 
 
 def test_question_to_data_omits_defaults() -> None:
