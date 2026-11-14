@@ -73,6 +73,14 @@ class Database(StrEnum):
     OPENALEX = "openalex"
 
 
+class ExportTarget(StrEnum):
+    """Subscription databases biblio-search writes the equation for but never queries."""
+
+    CINAHL = "cinahl"
+    SCOPUS = "scopus"
+    WEB_OF_SCIENCE = "wos"
+
+
 class Vocabulary(StrEnum):
     """Thesauri that controlled terms can come from."""
 
