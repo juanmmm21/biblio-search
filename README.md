@@ -34,7 +34,7 @@ rerun, reviewed or adjusted later.
 
 The tool follows the approach described by Rafael del Pino Casado (Department of Nursing,
 University of Jaén) in *"Cómo aprender (y enseñar) a realizar búsquedas en CINAHL y PubMed"*
-(Evidentia, 2017):
+(Evidentia, 2017), and in *"Búsqueda bibliográfica: generalidades"* (2024):
 
 1. **Structure the question.** Use **SPC** (health *Situation*, *Population*, study
    *Question*), which fits any study design, or **PICO** (*Population*, *Intervention*,
@@ -58,12 +58,16 @@ University of Jaén) in *"Cómo aprender (y enseñar) a realizar búsquedas en C
    with enough scientific output (too specific), and if none of the first 50 records is
    relevant, the search is probably too sensitive. biblio-search counts every condition and
    every lever so you tune with numbers.
-8. **Run it and read what the database understood.** biblio-search sends each database its
+8. **Look for the best evidence first.** On a topic that is not new, Del Pino searches
+   clinical practice guidelines first, then systematic reviews and only then original
+   studies, following Haynes' pyramid. biblio-search counts the question in PubMed at each
+   level and can limit the equation to one of them by publication type.
+9. **Run it and read what the database understood.** biblio-search sends each database its
    own equation (PubMed through NCBI E-utilities, ERIC through its search API, arXiv through
    its Atom API, OpenAlex through its works API) and shows
    the record count, the database's own reading of the query, any term it did not recognise
    and the first records to screen.
-9. **Snowball from what you include.** Del Pino's sixth step: the works an included record
+10. **Snowball from what you include.** Del Pino's sixth step: the works an included record
    cites and the works that cite it are candidates the equation may have missed. biblio-search
    follows both through OpenAlex, for every discipline, and adds them to the screening.
 
@@ -220,17 +224,18 @@ biblio-search/
 │   ├── catalog.py        # databases, vocabularies and labels shared by the CLI and the web
 │   ├── pipeline.py       # question -> equation -> search -> records, step by step
 │   ├── tuning.py         # condition and lever counts, Del Pino's sensitivity warnings
+│   ├── evidence.py       # Haynes' pyramid: counts per level of evidence and where to start
 │   ├── merge.py          # union of several databases without duplicates (DOI or PMID)
 │   ├── search_log.py     # reproducible Markdown log of a search
 │   ├── export.py         # merged records as RIS and CSV
 │   ├── screening.py      # SQLite screening project: decisions, reasons and flow counts
 │   ├── snowball.py       # references and citations of the included records via OpenAlex
 │   ├── web/
-│   │   ├── app.py        # FastAPI app: preview, check, SSE search, tuning, screening, snowballing
+│   │   ├── app.py        # FastAPI app: preview, check, evidence levels, SSE search, tuning, screening, snowballing
 │   │   ├── views.py      # JSON views of questions, selections, counts and records
 │   │   ├── server.py     # binds 127.0.0.1 and opens the browser
 │   │   └── static/       # the page: HTML, CSS and JavaScript, no build step
-│   └── __main__.py       # command line interface (ui, draft, build, check, decs, databases, search, tune, screening, snowball)
+│   └── __main__.py       # command line interface (ui, draft, build, check, decs, databases, evidence, search, tune, screening, snowball)
 ├── examples/
 │   ├── caregiver-burden.toml       # worked example from Del Pino (2017)
 │   ├── peer-tutoring-reading.toml  # education question with free concepts and ERIC terms
@@ -273,6 +278,9 @@ The page opens in your browser on a free port of `127.0.0.1` (`--port` to fix it
   same strategy written for CINAHL, Scopus and Web of Science, ready to copy.
 - **Check the headings** against MeSH and ERIC: each one is confirmed, corrected or flagged, with suggested
   synonyms you can add with a click and a button that applies the corrections.
+- **Count the levels of evidence** in PubMed (guidelines, systematic reviews, original
+  studies) and *Use* the one to start with; the *Level of evidence* selector limits the
+  PubMed equation to it. See [Levels of evidence](#levels-of-evidence).
 - **Tune** the strategy: the count of every condition on its own and without it, and of
   every lever of the method moved one at a time, with Del Pino's warnings and an *Apply*
   button that loads the variant you prefer into the form.
@@ -297,6 +305,8 @@ The page opens in your browser on a free port of `127.0.0.1` (`--port` to fix it
 ![An education question: the ERIC equation with exact descriptors and title/description free text, and its descriptors confirmed through the ERIC API](docs/screenshots/eric.png)
 
 ![A physics question searched in arXiv and OpenAlex: the arXiv equation with its fields and categories, 115 records and the preprints with their arXiv DOIs](docs/screenshots/arxiv.png)
+
+![Levels of evidence: the caregiver question counted in PubMed as guidelines, systematic reviews and original studies, with the advice to start with the guidelines and the systematic reviews level in use](docs/screenshots/evidence.png)
 
 ![Tuning: the count of each condition on its own and without it, and of each sensitivity or specificity lever, in PubMed and OpenAlex](docs/screenshots/tuning.png)
 
@@ -935,6 +945,43 @@ Screen the first 50 records; if none is relevant, run again with --none-relevant
 Only counts are requested, and each distinct equation once. In OpenAlex every count draws
 from the daily budget, so a question with four conditions costs about ten searches there.
 
+### Levels of evidence
+
+Del Pino (2024) looks for the best evidence available before anything else: clinical
+practice guidelines (preferably those based on systematic reviews), then systematic reviews,
+and original studies only when there are neither, or when the topic is too new for them.
+`evidence` counts the question in PubMed at each of those levels of Haynes' pyramid:
+
+```console
+$ biblio-search evidence examples/caregiver-burden.toml
+PubMed: 2,816 records without a level filter
+  (Anxiety[mj:noexp] OR Depression[mj] OR anxiety[tiab] OR depress*[tiab]) AND ...
+
+Levels of evidence, from the top of Haynes' pyramid down:
+  Clinical practice guidelines: 2
+    (...) AND (Guideline[pt] OR Practice Guideline[pt])
+  Systematic reviews and meta-analyses: 71
+    (...) AND systematic[sb]
+  Original studies: 2,625
+    (...) NOT (systematic[sb] OR Review[pt] OR Guideline[pt] OR Practice Guideline[pt] OR Editorial[pt] OR Letter[pt] OR Comment[pt] OR News[pt])
+
+Start with the 2 guidelines: prefer those based on systematic reviews, which state the level of evidence of every recommendation.
+Search that level with --evidence-level guidelines (or evidence_level = "guidelines" under [options]).
+```
+
+- **Guidelines** are PubMed's `Guideline` and `Practice Guideline` publication types.
+- **Systematic reviews** use `systematic[sb]`, PubMed's own filter: it gathers the review
+  and meta-analysis publication types and also finds reviews not indexed yet.
+- **Original studies** have no filter of their own in PubMed, so syntheses (narrative
+  reviews included, which Del Pino says provide no evidence) and non-research items
+  (editorials, letters, comments, news) are taken out.
+
+`--evidence-level` (or `evidence_level` under `[options]`, or the selector in the web
+interface) limits the PubMed equation to one level. The other databases do not index these
+publication types, so they get every type of record and the equation notes say so. The
+upper levels of the pyramid (decision support systems and synopses) live in secondary
+resources rather than in bibliographic databases, so they are not counted.
+
 ### Question file reference
 
 - `question` (string) and `format` (`spc`, `pico` or `concepts`) are required.
@@ -953,7 +1000,9 @@ from the daily budget, so a question with four conditions costs about ten search
     default) or `title` (`[ti]`). A trailing `*` truncates the term.
 - `[[exclusions]]`: conditions appended with `NOT`, e.g. animal studies.
 - `[options]`: `repeat_controlled_as_free` and `free_text_unindexed_only` (booleans). The
-  command line flags can switch them on, never off.
+  command line flags can switch them on, never off. `evidence_level` (`guidelines`,
+  `systematic_reviews` or `original_studies`) limits PubMed to one level of evidence;
+  `--evidence-level` replaces it.
 
 ## Programmatic use
 
