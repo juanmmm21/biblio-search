@@ -114,6 +114,18 @@ class FreeTextField(StrEnum):
     TITLE = "title"
 
 
+class EvidenceLevel(StrEnum):
+    """Levels of evidence to search for in health, from the top of Haynes' pyramid down.
+
+    Del Pino (2024) looks first for clinical practice guidelines, then for systematic
+    reviews and, if there are none (or the topic is too new for them), for original studies.
+    """
+
+    GUIDELINES = "guidelines"
+    SYSTEMATIC_REVIEWS = "systematic_reviews"
+    ORIGINAL_STUDIES = "original_studies"
+
+
 class QuestionError(ValueError):
     """Raised when a structured question or one of its parts is not valid."""
 
@@ -309,11 +321,13 @@ class StrategyOptions:
     ``repeat_controlled_as_free`` also searches every heading as free text, which recovers
     records not yet indexed (more sensitive). ``free_text_unindexed_only`` limits free text
     to records outside MEDLINE with ``NOT MEDLINE[sb]`` (more specific); Del Pino advises
-    against it in systematic reviews.
+    against it in systematic reviews. ``evidence_level`` limits the search to one level of
+    Haynes' pyramid by publication type, in the databases that index it (PubMed).
     """
 
     repeat_controlled_as_free: bool = False
     free_text_unindexed_only: bool = False
+    evidence_level: EvidenceLevel | None = None
 
 
 @dataclass(frozen=True, slots=True)

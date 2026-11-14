@@ -13,6 +13,7 @@ from biblio_search.models import (
     TRUNCATION,
     Condition,
     ControlledScope,
+    EvidenceLevel,
     FreeTextField,
     StrategyOptions,
     StructuredQuestion,
@@ -34,6 +35,34 @@ FREE_TAGS: dict[FreeTextField, str] = {
 }
 
 UNINDEXED_FILTER = "MEDLINE[sb]"
+
+_GUIDELINE_TYPES = "Guideline[pt] OR Practice Guideline[pt]"
+# systematic[sb] es el filtro de revisiones sistemáticas de PubMed: reúne los tipos de
+# publicación (Systematic Review, Meta-Analysis...) y una estrategia de texto libre que
+# también encuentra las que aún no están indexadas.
+_SYSTEMATIC_FILTER = "systematic[sb]"
+# PubMed no tiene un filtro de estudios originales: se quitan las síntesis (también las
+# revisiones narrativas, que según Del Pino no aportan evidencia) y lo que no es investigación.
+_NOT_ORIGINAL = (
+    f"{_SYSTEMATIC_FILTER} OR Review[pt] OR {_GUIDELINE_TYPES} OR Editorial[pt] OR Letter[pt] "
+    "OR Comment[pt] OR News[pt]"
+)
+EVIDENCE_FILTERS: dict[EvidenceLevel, str] = {
+    EvidenceLevel.GUIDELINES: f"AND ({_GUIDELINE_TYPES})",
+    EvidenceLevel.SYSTEMATIC_REVIEWS: f"AND {_SYSTEMATIC_FILTER}",
+    EvidenceLevel.ORIGINAL_STUDIES: f"NOT ({_NOT_ORIGINAL})",
+}
+
+
+def apply_evidence_level(equation: str, level: EvidenceLevel | None) -> str:
+    """Limit a PubMed equation to one level of evidence.
+
+    PubMed reads operators left to right, so the equation is wrapped in parentheses before
+    the filter is joined: otherwise a trailing NOT of the question would swallow it.
+    """
+    if level is None:
+        return equation
+    return f"({equation}) {EVIDENCE_FILTERS[level]}"
 
 
 def render_term(term: Term) -> str:
@@ -132,7 +161,7 @@ class PubMedDialect:
         for exclusion in question.exclusions:
             local = localize_condition(exclusion, self.vocabularies)
             equation += f" NOT {_or_group(local.terms)}"
-        return equation
+        return apply_evidence_level(equation, options.evidence_level)
 
     def notes(self, question: StructuredQuestion) -> tuple[str, ...]:
         # PubMed entiende todo lo que el modelo permite escribir: no hay nada que explicar.
