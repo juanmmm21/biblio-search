@@ -548,6 +548,22 @@ checked against MeSH like any question: headings MeSH does not know are searched
 text. Without `--output` the question file is printed. In the web interface the
 *Draft with local model* button does the same and loads the draft into the form.
 
+When the question rules something out ("no animal studies"), the model also proposes NOT
+conditions, each with its reason. They are never added on their own, since a NOT drops every
+record that mentions both: the CLI prints them as `[[exclusions]]` tables to paste into the
+question file, and the web interface lists them under the draft with an *Add as NOT* button.
+Their headings go through the same MeSH check, so an invented one ends up as free text:
+
+```console
+Suggested exclusions (not added: NOT also drops records that mention both; paste the ones you agree with at the end of the question file):
+  animal studies: the question specifically excludes studies involving animals
+
+[[exclusions]]
+label = "animal studies"
+controlled = ["Animals"]
+free = ["rat*", "mice", "mouse*", "animal study*"]
+```
+
 A small local model is a starting point, not a librarian: read every condition, merge or
 split the ones it got wrong and add the synonyms you know before searching. `OLLAMA_HOST`
 points to an Ollama on another machine, and the model is unloaded a minute after the draft
