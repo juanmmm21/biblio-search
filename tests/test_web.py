@@ -931,12 +931,13 @@ def test_preview_warns_that_the_level_only_filters_pubmed(client: TestClient) ->
 
 
 class RecordedOllama:
-    """The recorded qwen3:8b answers for the fibromyalgia question."""
+    """The recorded qwen3:8b answers for one question (fibromyalgia by default)."""
 
     model = "qwen3:8b"
 
-    def __init__(self, error: AssistantError | None = None) -> None:
+    def __init__(self, error: AssistantError | None = None, topic: str = "fibromyalgia") -> None:
         self.error = error
+        self.topic = topic
         self.schemas: list[Mapping[str, object]] = []
 
     async def complete_json(
@@ -948,7 +949,7 @@ class RecordedOllama:
         properties = schema["properties"]
         assert isinstance(properties, dict)
         name = "classify" if "discipline" in properties else "draft"
-        message = load_fixture(f"ollama_{name}_fibromyalgia.json")["message"]
+        message = load_fixture(f"ollama_{name}_{self.topic}.json")["message"]
         assert isinstance(message, dict)
         answer: Mapping[str, object] = json.loads(message["content"])
         return answer
@@ -958,6 +959,27 @@ FIBROMYALGIA = (
     "¿El ejercicio en el agua mejora el dolor en la fibromialgia comparado con el ejercicio "
     "en tierra?"
 )
+
+
+def test_draft_suggests_exclusions_without_adding_them() -> None:
+    text = (
+        "¿El ejercicio aeróbico mejora la memoria en personas mayores con deterioro cognitivo "
+        "leve? No me interesan los estudios en animales."
+    )
+    with make_client(assistant=RecordedOllama(topic="memory")) as client:
+        body = client.post("/api/draft", json={"text": text}).json()
+        (suggestion,) = body["exclusions"]
+        # Lo que devuelve se puede meter tal cual como exclusión de la pregunta.
+        accepted = {**body["question"], "exclusions": [suggestion["condition"]]}
+        preview = client.post("/api/preview", json=accepted).json()
+    assert "exclusions" not in body["question"]
+    assert suggestion["reason"] == "the question specifically excludes studies involving animals"
+    assert suggestion["condition"]["label"] == "animal studies"
+    # El NCBI falso no conoce Animals: pasa a lenguaje libre, como cualquier descriptor.
+    assert "controlled" not in suggestion["condition"]
+    assert suggestion["condition"]["free"] == ["Animals", "rat*", "mice", "mouse*", "animal study*"]
+    pubmed = preview["equations"][0]["equation"]
+    assert " NOT (" in pubmed and "rat*[tiab]" in pubmed
 
 
 def test_draft_fills_the_form_and_checks_the_headings() -> None:
@@ -972,6 +994,7 @@ def test_draft_fills_the_form_and_checks_the_headings() -> None:
     assert question["question"] == FIBROMYALGIA
     assert (question["format"], question["discipline"]) == ("pico", "health")
     assert any("comparison" in note for note in body["notes"])
+    assert body["exclusions"] == []
     (check,) = body["check"]["results"]
     statuses = {c["term"]: c["status"] for c in check["checks"]}
     assert statuses == {"Fibromyalgia": "not_found", "Exercise": "not_found", "Pain": "not_found"}

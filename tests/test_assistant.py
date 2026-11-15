@@ -15,10 +15,12 @@ from biblio_search.assistant import (
     AssistantError,
     OllamaClient,
     OllamaConfig,
+    draft_prompt,
     draft_question,
     draft_schema,
     parse_classification,
     parse_draft,
+    parse_exclusions,
 )
 from biblio_search.models import (
     ComponentRole,
@@ -169,9 +171,16 @@ def test_classification_keeps_formats_inside_their_discipline() -> None:
 
 def test_draft_schema_has_one_key_per_component() -> None:
     pico = draft_schema(QuestionFormat.PICO)
-    assert pico["required"] == ["english", "population", "intervention", "comparison", "outcome"]
+    assert pico["required"] == [
+        "english",
+        "population",
+        "intervention",
+        "comparison",
+        "outcome",
+        "exclusions",
+    ]
     concepts = draft_schema(QuestionFormat.CONCEPTS)
-    assert concepts["required"] == ["english", "concepts"]
+    assert concepts["required"] == ["english", "concepts", "exclusions"]
 
 
 def test_parse_draft_from_the_recorded_answer() -> None:
@@ -277,3 +286,82 @@ def test_draft_question_rejects_empty_and_huge_questions() -> None:
     with pytest.raises(QuestionError, match="longer"):
         asyncio.run(draft_question("a" * 1001, model))
     assert model.calls == []
+
+
+MEMORY = (
+    "¿El ejercicio aeróbico mejora la memoria en personas mayores con deterioro cognitivo "
+    "leve? No me interesan los estudios en animales."
+)
+
+
+def test_the_prompt_asks_for_narrow_exclusions_only() -> None:
+    prompt = draft_prompt(QuestionFormat.PICO, use_mesh=True)
+    assert '"exclusions"' in prompt and "usually an empty list" in prompt
+    assert "Never exclude what is merely not mentioned" in prompt
+
+
+def test_parse_exclusions_from_the_recorded_answer() -> None:
+    payload = _content("ollama_draft_memory.json")
+    question, _, _ = parse_draft(payload, MEMORY, QuestionFormat.PICO, Discipline.HEALTH)
+    assert question.exclusions == ()
+    notes: list[str] = []
+    (animals,) = parse_exclusions(payload, question, notes)
+    assert animals.condition.label == "animal studies"
+    assert animals.reason == "the question specifically excludes studies involving animals"
+    assert [(t.text, t.kind) for t in animals.condition.terms] == [
+        ("Animals", TermKind.CONTROLLED),
+        ("rat*", TermKind.FREE),
+        ("mice", TermKind.FREE),
+        ("mouse*", TermKind.FREE),
+        ("animal study*", TermKind.FREE),
+    ]
+    assert notes == []
+
+
+def test_parse_exclusions_needs_terms_and_a_reason_and_renames_labels() -> None:
+    payload = _content("ollama_draft_memory.json")
+    question, _, _ = parse_draft(payload, MEMORY, QuestionFormat.PICO, Discipline.HEALTH)
+    raw = {
+        "exclusions": [
+            {"label": "older people", "reason": "clash", "mesh": [], "free": ["x*"]},
+            {"label": "no reason", "reason": "  ", "mesh": [], "free": ["y*"]},
+            {"label": "no terms", "reason": "why", "mesh": [], "free": []},
+            {"label": "bad", "reason": "why", "mesh": [], "free": ["a[tiab]"]},
+            "not an object",
+        ]
+    }
+    notes: list[str] = []
+    (renamed,) = parse_exclusions(raw, question, notes)
+    assert renamed.condition.label == "older people (2)"
+    assert any("a[tiab]" in note for note in notes)
+    assert parse_exclusions({"exclusions": "nothing"}, question, []) == ()
+    assert parse_exclusions({}, question, []) == ()
+
+
+def test_draft_question_checks_the_suggested_exclusions_apart() -> None:
+    model = FakeModel(
+        [_content("ollama_classify_memory.json"), _content("ollama_draft_memory.json")]
+    )
+    mesh = FakeMesh({"Aged": "D000368", "Exercise": "D015444", "Memory": "D008568"})
+    draft = asyncio.run(draft_question(MEMORY, model, thesaurus=mesh))
+    assert "Animals" in mesh.asked
+    # La sugerencia no entra en la pregunta: el usuario decide.
+    assert draft.question.exclusions == ()
+    (animals,) = draft.exclusions
+    # Animals no está en este MeSH falso: pasa a texto libre, como el resto del borrador.
+    assert (animals.condition.terms[0].text, animals.condition.terms[0].kind) == (
+        "Animals",
+        TermKind.FREE,
+    )
+    assert draft.check is not None
+    assert any(c.condition == "animal studies" for c in draft.check.checks)
+
+
+def test_draft_without_exclusions_suggests_none() -> None:
+    model = FakeModel([_content("ollama_draft_fibromyalgia.json")])
+    draft = asyncio.run(
+        draft_question(
+            QUESTION, model, discipline=Discipline.HEALTH, question_format=QuestionFormat.PICO
+        )
+    )
+    assert draft.exclusions == ()

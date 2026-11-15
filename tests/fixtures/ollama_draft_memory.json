@@ -1,0 +1,17 @@
+{
+  "model": "qwen3:8b",
+  "created_at": "2026-11-15T10:26:55.520796051Z",
+  "message": {
+    "role": "assistant",
+    "content": "{\n  \"english\": \"Does aerobic exercise improve memory in older adults with mild cognitive impairment?\",\n  \"population\": {\n    \"description\": \"older adults with mild cognitive impairment\",\n    \"conditions\": [\n      {\n        \"label\": \"older people\",\n        \"mesh\": [\"Aged\"],\n        \"free\": [\"elder*\", \"older adult*\"]\n      },\n      {\n        \"label\": \"mild cognitive impairment\",\n        \"mesh\": [\"Dementia\"],\n        \"free\": [\"mild cognitive impairment*\", \"mci*\"]\n      }\n    ]\n  },\n  \"intervention\": {\n    \"description\": \"aerobic exercise\",\n    \"conditions\": [\n      {\n        \"label\": \"aerobic exercise\",\n        \"mesh\": [\"Exercise\"],\n        \"free\": [\"aerobic exercis*\", \"cardio exercis*\", \"aerobic activit*\"]\n      }\n    ]\n  },\n  \"comparison\": {\n    \"description\": \"no comparison specified\",\n    \"conditions\": []\n  },\n  \"outcome\": {\n    \"description\": \"improvement in memory\",\n    \"conditions\": [\n      {\n        \"label\": \"memory improvement\",\n        \"mesh\": [\"Memory\"],\n        \"free\": [\"memory improv*\", \"cognitive function*\", \"recall*\"]\n      }\n    ]\n  },\n  \"exclusions\": [\n    {\n      \"label\": \"animal studies\",\n      \"reason\": \"the question specifically excludes studies involving animals\",\n      \"mesh\": [\"Animals\"],\n      \"free\": [\"rat*\", \"mice\", \"mouse*\", \"animal study*\"]\n    }\n  ]\n}"
+  },
+  "done": true,
+  "done_reason": "stop",
+  "total_duration": 14111039742,
+  "load_duration": 8989926110,
+  "prompt_eval_count": 613,
+  "prompt_eval_cached_count": 0,
+  "prompt_eval_duration": 362542000,
+  "eval_count": 329,
+  "eval_duration": 4753024000
+}

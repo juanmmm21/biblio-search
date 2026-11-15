@@ -772,12 +772,14 @@ class _Opened:
         return None
 
 
-def _patch_ollama(monkeypatch: pytest.MonkeyPatch, seen: list[dict[str, object]]) -> None:
+def _patch_ollama(
+    monkeypatch: pytest.MonkeyPatch, seen: list[dict[str, object]], topic: str = "fibromyalgia"
+) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
         seen.append(body)
         classify = "discipline" in body["format"]["properties"]
-        name = "ollama_classify_fibromyalgia.json" if classify else "ollama_draft_fibromyalgia.json"
+        name = f"ollama_{'classify' if classify else 'draft'}_{topic}.json"
         return httpx.Response(200, json=load_fixture(name))
 
     def factory(config: OllamaConfig) -> OllamaClient:
@@ -820,6 +822,25 @@ def test_draft_writes_a_checked_question_file(
         "comparison",
         "outcome",
     ]
+
+
+def test_draft_prints_suggested_exclusions_apart(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _patch_ollama(monkeypatch, [], topic="memory")
+    _patch_mesh_client(monkeypatch, [])
+    output = tmp_path / "draft.toml"
+    text = (
+        "¿El ejercicio aeróbico mejora la memoria en personas mayores con deterioro cognitivo "
+        "leve? No me interesan los estudios en animales."
+    )
+    assert main(["draft", "--output", str(output), text]) == 0
+    out = capsys.readouterr().out
+    assert "Suggested exclusions (not added" in out
+    assert "  animal studies: the question specifically excludes studies involving animals" in out
+    assert '[[exclusions]]\nlabel = "animal studies"' in out
+    question, _ = load_question(output)
+    assert question.exclusions == ()
 
 
 def test_draft_keeps_the_chosen_format_and_prints_the_file(
