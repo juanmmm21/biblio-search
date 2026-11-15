@@ -17,6 +17,7 @@ from typing import Protocol, Self
 
 import httpx
 
+from biblio_search.arxiv_categories import ARXIV_CATEGORIES, is_arxiv_category
 from biblio_search.check import QuestionCheck, apply_check, check_question
 from biblio_search.models import (
     FORMAT_ROLES,
@@ -32,6 +33,7 @@ from biblio_search.models import (
     Vocabulary,
 )
 from biblio_search.protocols import Thesaurus
+from biblio_search.selection import ARXIV_DISCIPLINES
 
 DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
 DEFAULT_MODEL = "qwen3:8b"
@@ -196,50 +198,57 @@ CLASSIFY_SCHEMA: Mapping[str, object] = {
     "required": ["discipline", "format"],
 }
 
-_CONDITION_SCHEMA: Mapping[str, object] = {
-    "type": "object",
-    "properties": {
-        "label": {"type": "string"},
-        "mesh": {"type": "array", "items": {"type": "string"}},
-        "free": {"type": "array", "items": {"type": "string"}, "minItems": 1},
-    },
-    "required": ["label", "mesh", "free"],
+# Clave del JSON con los descriptores que el modelo propone y su vocabulario, por disciplina.
+# El resto de disciplinas no tiene tesauro: solo lenguaje libre.
+CONTROLLED_KEYS: Mapping[Discipline, tuple[str, Vocabulary]] = {
+    Discipline.HEALTH: ("mesh", Vocabulary.MESH),
+    Discipline.EDUCATION: ("eric", Vocabulary.ERIC),
 }
-
-_COMPONENT_SCHEMA: Mapping[str, object] = {
-    "type": "object",
-    "properties": {
-        "description": {"type": "string"},
-        "conditions": {"type": "array", "items": _CONDITION_SCHEMA},
-    },
-    "required": ["description", "conditions"],
-}
+MAX_SUGGESTED_CATEGORIES = 4
 
 
-_EXCLUSION_SCHEMA: Mapping[str, object] = {
-    "type": "object",
-    "properties": {
-        "label": {"type": "string"},
-        "reason": {"type": "string"},
-        "mesh": {"type": "array", "items": {"type": "string"}},
-        "free": {"type": "array", "items": {"type": "string"}, "minItems": 1},
-    },
-    "required": ["label", "reason", "mesh", "free"],
-}
+def _terms_schema(key: str | None, extra: Mapping[str, object]) -> Mapping[str, object]:
+    properties: dict[str, object] = {"label": {"type": "string"}, **extra}
+    if key is not None:
+        properties[key] = {"type": "array", "items": {"type": "string"}}
+    properties["free"] = {"type": "array", "items": {"type": "string"}, "minItems": 1}
+    return {"type": "object", "properties": properties, "required": list(properties)}
 
 
-def draft_schema(question_format: QuestionFormat) -> Mapping[str, object]:
+def _component_schema(key: str | None) -> Mapping[str, object]:
+    return {
+        "type": "object",
+        "properties": {
+            "description": {"type": "string"},
+            "conditions": {"type": "array", "items": _terms_schema(key, {})},
+        },
+        "required": ["description", "conditions"],
+    }
+
+
+def draft_schema(
+    question_format: QuestionFormat, discipline: Discipline = Discipline.HEALTH
+) -> Mapping[str, object]:
     """JSON schema of the decomposition, with one fixed key per component of the format.
 
     Fixed keys make small models fill every component; a free list of roles let them stop
-    after the first one.
+    after the first one. Descriptors go under the key of the discipline's thesaurus, and the
+    disciplines arXiv covers also get its categories, limited to arXiv's own list.
     """
+    key = CONTROLLED_KEYS[discipline][0] if discipline in CONTROLLED_KEYS else None
+    component = _component_schema(key)
     if question_format is QuestionFormat.CONCEPTS:
         components: dict[str, object] = {
-            "concepts": {"type": "array", "items": _COMPONENT_SCHEMA, "minItems": 1}
+            "concepts": {"type": "array", "items": component, "minItems": 1}
         }
     else:
-        components = {role.value: _COMPONENT_SCHEMA for role in FORMAT_ROLES[question_format]}
+        components = {role.value: component for role in FORMAT_ROLES[question_format]}
+    if discipline in ARXIV_DISCIPLINES:
+        components["arxiv_categories"] = {
+            "type": "array",
+            "items": {"type": "string", "enum": list(ARXIV_CATEGORIES)},
+            "maxItems": MAX_SUGGESTED_CATEGORIES,
+        }
     # Las exclusiones van al final y obligatorias (vacías casi siempre): un campo opcional,
     # los modelos pequeños lo ignoran siempre.
     return {
@@ -247,7 +256,10 @@ def draft_schema(question_format: QuestionFormat) -> Mapping[str, object]:
         "properties": {
             "english": {"type": "string"},
             **components,
-            "exclusions": {"type": "array", "items": _EXCLUSION_SCHEMA},
+            "exclusions": {
+                "type": "array",
+                "items": _terms_schema(key, {"reason": {"type": "string"}}),
+            },
         },
         "required": ["english", *components, "exclusions"],
     }
@@ -299,18 +311,23 @@ You help to plan a bibliographic search with free concepts. Decompose the user's
 English. Leave out vague words such as "improve", "effect" or "relationship".
 Example: "¿La tutoría entre iguales mejora la comprensión lectora en primaria?" ->
 concepts: [{"description": "Peer tutoring", "conditions": [{"label": "peer tutoring", \
-"mesh": [], "free": ["peer tutor*", "cross-age tutor*", "peer-assisted learning"]}]},
+"free": ["peer tutor*", "cross-age tutor*", "peer-assisted learning"]}]},
  {"description": "Reading comprehension", "conditions": [{"label": "reading comprehension", \
-"mesh": [], "free": ["reading comprehension", "reading skill*"]}]},
+"free": ["reading comprehension", "reading skill*"]}]},
  {"description": "Primary school pupils", "conditions": [{"label": "primary school", \
-"mesh": [], "free": ["primary school*", "elementary school*", "pupil*"]}]}]""",
+"free": ["primary school*", "elementary school*", "pupil*"]}]}]""",
 }
 
-_MESH_RULES = {
-    True: '- "mesh": exact English names of MeSH descriptors you are confident exist '
-    "(Caregivers, Anxiety, Aged, Accidental Falls). Never invent descriptors.",
-    False: '- "mesh": always empty.',
+_CONTROLLED_RULES: Mapping[Discipline, str] = {
+    Discipline.HEALTH: '- "mesh": exact English names of MeSH descriptors you are confident '
+    "exist (Caregivers, Anxiety, Aged, Accidental Falls). Never invent descriptors.",
+    Discipline.EDUCATION: '- "eric": exact names of ERIC Thesaurus descriptors you are '
+    "confident exist (Peer Teaching, Reading Comprehension, Elementary School Students). "
+    "Never invent descriptors.",
 }
+_ARXIV_RULE = """\
+- "arxiv_categories": the one to three arXiv categories where this research is posted \
+(quant-ph, cs.LG, math.CO, econ.EM...), most specific first; an empty list if unsure."""
 
 _CONDITION_RULES = """\
 Rules for every condition:
@@ -334,9 +351,14 @@ the same rules as conditions (e.g. label "animal studies", mesh ["Animals"], fre
 ["rat*", "mice", "mouse"]). Keep it narrow: NOT also drops records that mention both."""
 
 
-def draft_prompt(question_format: QuestionFormat, *, use_mesh: bool) -> str:
-    """System prompt that decomposes a question in ``question_format``."""
-    return "\n".join([_FORMAT_PROMPTS[question_format], _MESH_RULES[use_mesh], _CONDITION_RULES])
+def draft_prompt(question_format: QuestionFormat, *, discipline: Discipline) -> str:
+    """System prompt that decomposes a question in ``question_format`` for ``discipline``."""
+    parts = [_FORMAT_PROMPTS[question_format]]
+    if discipline in _CONTROLLED_RULES:
+        parts.append(_CONTROLLED_RULES[discipline])
+    if discipline in ARXIV_DISCIPLINES:
+        parts.append(_ARXIV_RULE)
+    return "\n".join([*parts, _CONDITION_RULES])
 
 
 # --- Del JSON del modelo a una pregunta estructurada ---
@@ -399,10 +421,14 @@ def _format_for(discipline: Discipline, question_format: QuestionFormat) -> Ques
     return question_format
 
 
-def _terms(raw: Mapping[str, object], *, use_mesh: bool, notes: list[str]) -> list[Term]:
+def _terms(raw: Mapping[str, object], *, discipline: Discipline, notes: list[str]) -> list[Term]:
     terms: list[Term] = []
     seen: set[tuple[str, TermKind]] = set()
-    candidates = [(text, TermKind.CONTROLLED) for text in _texts(raw.get("mesh")) if use_mesh]
+    candidates: list[tuple[str, TermKind]] = []
+    vocabulary = Vocabulary.MESH
+    if discipline in CONTROLLED_KEYS:
+        field, vocabulary = CONTROLLED_KEYS[discipline]
+        candidates += [(text, TermKind.CONTROLLED) for text in _texts(raw.get(field))]
     candidates += [(text, TermKind.FREE) for text in _texts(raw.get("free"))]
     for text, kind in candidates:
         key = (text.casefold(), kind)
@@ -410,7 +436,11 @@ def _terms(raw: Mapping[str, object], *, use_mesh: bool, notes: list[str]) -> li
             continue
         seen.add(key)
         try:
-            term = Term.controlled(text) if kind is TermKind.CONTROLLED else Term.free(text)
+            term = (
+                Term.controlled(text, vocabulary=vocabulary)
+                if kind is TermKind.CONTROLLED
+                else Term.free(text)
+            )
         except QuestionError as exc:
             notes.append(f"left out {text!r}: {exc}")
             continue
@@ -419,13 +449,13 @@ def _terms(raw: Mapping[str, object], *, use_mesh: bool, notes: list[str]) -> li
 
 
 def _conditions(
-    raw_conditions: object, *, use_mesh: bool, notes: list[str]
+    raw_conditions: object, *, discipline: Discipline, notes: list[str]
 ) -> tuple[Condition, ...]:
     conditions: list[Condition] = []
     for raw in raw_conditions if isinstance(raw_conditions, list) else []:
         if not isinstance(raw, Mapping):
             continue
-        terms = _terms(raw, use_mesh=use_mesh, notes=notes)
+        terms = _terms(raw, discipline=discipline, notes=notes)
         if terms:
             label = _text(raw.get("label")) or terms[-1].text
             conditions.append(Condition(label=label, terms=tuple(terms)))
@@ -447,6 +477,21 @@ def _raw_components(
     return found
 
 
+def _categories(
+    payload: Mapping[str, object], discipline: Discipline, notes: list[str]
+) -> tuple[str, ...]:
+    """arXiv categories proposed for a discipline arXiv covers; unknown ones are left out."""
+    if discipline not in ARXIV_DISCIPLINES:
+        return ()
+    kept: list[str] = []
+    for code in dict.fromkeys(_texts(payload.get("arxiv_categories"))):
+        if is_arxiv_category(code):
+            kept.append(code)
+        else:
+            notes.append(f"left out {code!r}: it is not an arXiv category")
+    return tuple(kept[:MAX_SUGGESTED_CATEGORIES])
+
+
 def parse_draft(
     payload: Mapping[str, object],
     text: str,
@@ -459,12 +504,11 @@ def parse_draft(
     whole draft. PICO's comparison is described but not searched (Cochrane advises against
     searching it); the user can add it by hand.
     """
-    use_mesh = discipline is Discipline.HEALTH
     notes: list[str] = []
     labels_used: set[str] = set()
     components: list[Component] = []
     for role, raw in _raw_components(payload, question_format):
-        conditions = _conditions(raw.get("conditions"), use_mesh=use_mesh, notes=notes)
+        conditions = _conditions(raw.get("conditions"), discipline=discipline, notes=notes)
         # Las etiquetas identifican cada condición en la comprobación y en la rejilla.
         renamed: list[Condition] = []
         for condition in conditions:
@@ -487,7 +531,11 @@ def parse_draft(
     if not any(component.conditions for component in components):
         raise AssistantError("the model did not propose any term to search for")
     question = StructuredQuestion(
-        text=text, format=question_format, components=tuple(components), discipline=discipline
+        text=text,
+        format=question_format,
+        components=tuple(components),
+        discipline=discipline,
+        arxiv_categories=_categories(payload, discipline, notes),
     )
     return question, _text(payload.get("english")), tuple(dict.fromkeys(notes))
 
@@ -500,14 +548,14 @@ def parse_exclusions(
     Labels never repeat one of the question's conditions, and an exclusion without terms or
     without a reason is left out: a NOT with no stated reason is not worth proposing.
     """
-    use_mesh = question.discipline is Discipline.HEALTH
+    discipline = question.discipline or Discipline.HEALTH
     labels = {c.label.casefold() for c in question.conditions}
     raw_items = payload.get("exclusions")
     suggestions: list[SuggestedExclusion] = []
     for raw in raw_items if isinstance(raw_items, list) else []:
         if not isinstance(raw, Mapping):
             continue
-        terms = _terms(raw, use_mesh=use_mesh, notes=notes)
+        terms = _terms(raw, discipline=discipline, notes=notes)
         reason = _text(raw.get("reason"))
         if not terms or not reason:
             continue
@@ -528,12 +576,15 @@ async def draft_question(
     discipline: Discipline | None = None,
     question_format: QuestionFormat | None = None,
     thesaurus: Thesaurus | None = None,
+    eric_thesaurus: Thesaurus | None = None,
 ) -> Draft:
-    """Ask ``model`` to decompose ``text`` and check its MeSH headings with ``thesaurus``.
+    """Ask ``model`` to decompose ``text`` and check its descriptors.
 
-    The discipline and format the user already chose are kept; the model only classifies
-    the question when one of them is missing. Headings the thesaurus does not know become
-    free text and entry terms are renamed to their heading, exactly as the check does.
+    MeSH headings (health) are checked with ``thesaurus`` and ERIC descriptors (education)
+    with ``eric_thesaurus``. The discipline and format the user already chose are kept; the
+    model only classifies the question when one of them is missing. Descriptors the
+    thesaurus does not know become free text and entry terms are renamed to their
+    descriptor, exactly as the check does.
     """
     cleaned = " ".join(text.split())
     if not cleaned:
@@ -546,9 +597,10 @@ async def draft_question(
         )
         discipline = discipline or guessed[0]
         question_format = question_format or guessed[1]
-    use_mesh = discipline is Discipline.HEALTH
     payload = await model.complete_json(
-        draft_prompt(question_format, use_mesh=use_mesh), cleaned, draft_schema(question_format)
+        draft_prompt(question_format, discipline=discipline),
+        cleaned,
+        draft_schema(question_format, discipline),
     )
     question, english, draft_notes = parse_draft(payload, cleaned, question_format, discipline)
     notes = list(draft_notes)
@@ -557,10 +609,11 @@ async def draft_question(
     # consulta, y luego vuelven a quedar aparte como sugerencias.
     probe = replace(question, exclusions=tuple(e.condition for e in exclusions))
     check: QuestionCheck | None = None
-    if thesaurus is not None and any(
-        t.vocabulary is Vocabulary.MESH for t in probe.controlled_terms
-    ):
-        check = await check_question(probe, thesaurus)
+    checker = {Vocabulary.MESH: thesaurus, Vocabulary.ERIC: eric_thesaurus}
+    vocabulary = CONTROLLED_KEYS[discipline][1] if discipline in CONTROLLED_KEYS else None
+    own = checker.get(vocabulary) if vocabulary is not None else None
+    if own is not None and any(t.vocabulary is vocabulary for t in probe.controlled_terms):
+        check = await check_question(probe, own)
         probe = apply_check(probe, check)
     exclusions = tuple(
         SuggestedExclusion(condition, suggestion.reason)
