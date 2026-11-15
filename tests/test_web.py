@@ -172,6 +172,17 @@ def test_index_and_static_files_are_served(client: TestClient) -> None:
     assert client.get("/static/style.css").status_code == 200
 
 
+def test_screening_shortcuts_are_wired_and_explained(client: TestClient) -> None:
+    page = client.get("/").text
+    script = client.get("/static/app.js").text
+    assert 'id="screening-keys"' in page
+    for key in ("J", "K", "I", "M", "E", "U", "R", "O", "Esc"):
+        assert f"<kbd>{key}</kbd>" in page
+    assert 'document.addEventListener("keydown", handleScreeningKey)' in script
+    for key in ("j", "k", "i", "e", "m", "u", "r", "o"):
+        assert f"    {key}: () =>" in script
+
+
 def test_preview_draws_tree_grid_databases_and_equation(client: TestClient) -> None:
     response = client.post("/api/preview", json=example_data())
 
