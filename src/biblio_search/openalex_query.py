@@ -4,12 +4,19 @@ The equation is sent as ``search.title_and_abstract.exact``: OpenAlex only accep
 wildcards in its unstemmed search, and the stemmed one reads «carer» as «care», so the
 exact search is also the one that does what the user wrote, like PubMed's [tiab].
 OpenAlex indexes no thesaurus, so every heading is searched as free text.
+
+A document type is not part of the search syntax but a separate ``filter`` on the work
+``type``: it is written after the equation as ``FILTER type:review`` and the client sends it
+as that filter.
 """
 
 from __future__ import annotations
 
+import re
+
 from biblio_search.models import (
     Condition,
+    DocumentType,
     FreeTextField,
     StrategyOptions,
     StructuredQuestion,
@@ -17,6 +24,30 @@ from biblio_search.models import (
     Vocabulary,
 )
 from biblio_search.pubmed_query import localize_condition
+
+FILTER_SEPARATOR = " FILTER "
+
+# Tipos de OpenAlex (campo ``type``): «article» ya excluye las revisiones, y los libros se
+# publican también por capítulos.
+DOCUMENT_TYPE_FILTERS: dict[DocumentType, str] = {
+    DocumentType.ARTICLE: "type:article",
+    DocumentType.REVIEW: "type:review",
+    DocumentType.PREPRINT: "type:preprint",
+    DocumentType.THESIS: "type:dissertation",
+    DocumentType.BOOK: "type:book|book-chapter",
+}
+
+# Una ecuación de OpenAlex sin filtro siempre acaba en «)», así que un término del usuario
+# que se llame «FILTER» nunca se confunde con el filtro.
+_TYPE_FILTER = re.compile(r"(?s)(.+)" + FILTER_SEPARATOR + r"(type:[a-z-]+(?:\|[a-z-]+)*)")
+
+
+def split_filter(equation: str) -> tuple[str, str | None]:
+    """Split an OpenAlex equation into the search text and its type filter, if it has one."""
+    match = _TYPE_FILTER.fullmatch(equation)
+    if match is None:
+        return equation, None
+    return match.group(1), match.group(2)
 
 
 def render_term(term: Term) -> str:
@@ -45,11 +76,13 @@ class OpenAlexDialect:
     vocabularies: frozenset[Vocabulary] = frozenset()
 
     def render(self, question: StructuredQuestion, options: StrategyOptions) -> str:
-        # Las opciones actúan sobre descriptores y MEDLINE, que OpenAlex no tiene: todo
-        # descriptor ya se busca como texto libre aquí.
+        # Las opciones actúan sobre descriptores y MEDLINE, que OpenAlex no tiene (todo
+        # descriptor ya se busca como texto libre aquí); solo cuenta el tipo de documento.
         equation = " AND ".join(_or_group(c) for c in question.conditions)
         for exclusion in question.exclusions:
             equation += f" NOT {_or_group(exclusion)}"
+        if options.document_type is not None:
+            equation += FILTER_SEPARATOR + DOCUMENT_TYPE_FILTERS[options.document_type]
         return equation
 
     def notes(self, question: StructuredQuestion) -> tuple[str, ...]:

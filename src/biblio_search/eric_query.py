@@ -14,6 +14,7 @@ from biblio_search.models import (
     TRUNCATION,
     Condition,
     ControlledScope,
+    DocumentType,
     FreeTextField,
     StrategyOptions,
     StructuredQuestion,
@@ -24,6 +25,17 @@ from biblio_search.models import (
 from biblio_search.pubmed_query import expand_condition, localize_condition
 
 DESCRIPTOR_FIELD = "subject_ss"
+
+# publicationtype es un campo exacto (distingue mayúsculas): «Information Analyses» es el tipo
+# ERIC de las revisiones y síntesis, y las tesis se reparten en varios subtipos
+# («Dissertations/Theses - Doctoral Dissertations»...), de ahí el comodín. ERIC no guarda
+# preprints.
+DOCUMENT_TYPE_FILTERS: dict[DocumentType, str] = {
+    DocumentType.ARTICLE: 'publicationtype:"Journal Articles"',
+    DocumentType.REVIEW: 'publicationtype:"Information Analyses"',
+    DocumentType.THESIS: "publicationtype:Dissertations*",
+    DocumentType.BOOK: "publicationtype:Books",
+}
 
 
 _OPERATORS = frozenset({"and", "or", "not"})
@@ -89,6 +101,8 @@ class EricDialect:
         )
         for exclusion in question.exclusions:
             equation += f" NOT {_or_group(_local_condition(exclusion, StrategyOptions()))}"
+        if options.document_type in DOCUMENT_TYPE_FILTERS:
+            equation = f"({equation}) AND {DOCUMENT_TYPE_FILTERS[options.document_type]}"
         return equation
 
     def notes(self, question: StructuredQuestion) -> tuple[str, ...]:

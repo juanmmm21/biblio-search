@@ -13,6 +13,7 @@ from biblio_search.models import (
     TRUNCATION,
     Condition,
     ControlledScope,
+    DocumentType,
     EvidenceLevel,
     FreeTextField,
     StrategyOptions,
@@ -63,6 +64,22 @@ def apply_evidence_level(equation: str, level: EvidenceLevel | None) -> str:
     if level is None:
         return equation
     return f"({equation}) {EVIDENCE_FILTERS[level]}"
+
+
+# «Journal Article» lo llevan casi todos los artículos de revista, también las revisiones;
+# tesis y libros no tienen tipo propio en PubMed (los libros están en Bookshelf).
+DOCUMENT_TYPE_FILTERS: dict[DocumentType, str] = {
+    DocumentType.ARTICLE: "Journal Article[pt]",
+    DocumentType.REVIEW: "Review[pt]",
+    DocumentType.PREPRINT: "Preprint[pt]",
+}
+
+
+def apply_document_type(equation: str, document_type: DocumentType | None) -> str:
+    """Limit a PubMed equation to one kind of document, when PubMed tells it apart."""
+    if document_type is None or document_type not in DOCUMENT_TYPE_FILTERS:
+        return equation
+    return f"({equation}) AND {DOCUMENT_TYPE_FILTERS[document_type]}"
 
 
 def render_term(term: Term) -> str:
@@ -161,7 +178,8 @@ class PubMedDialect:
         for exclusion in question.exclusions:
             local = localize_condition(exclusion, self.vocabularies)
             equation += f" NOT {_or_group(local.terms)}"
-        return apply_evidence_level(equation, options.evidence_level)
+        equation = apply_evidence_level(equation, options.evidence_level)
+        return apply_document_type(equation, options.document_type)
 
     def notes(self, question: StructuredQuestion) -> tuple[str, ...]:
         # PubMed entiende todo lo que el modelo permite escribir: no hay nada que explicar.

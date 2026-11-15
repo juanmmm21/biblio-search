@@ -126,6 +126,20 @@ class EvidenceLevel(StrEnum):
     ORIGINAL_STUDIES = "original_studies"
 
 
+class DocumentType(StrEnum):
+    """Kinds of document a search can be limited to, in any discipline.
+
+    Each database names them its own way (OpenAlex ``type``, ERIC publication types, PubMed
+    publication types); a database that cannot tell one kind apart gets every record.
+    """
+
+    ARTICLE = "article"
+    REVIEW = "review"
+    PREPRINT = "preprint"
+    THESIS = "thesis"
+    BOOK = "book"
+
+
 class QuestionError(ValueError):
     """Raised when a structured question or one of its parts is not valid."""
 
@@ -323,11 +337,13 @@ class StrategyOptions:
     to records outside MEDLINE with ``NOT MEDLINE[sb]`` (more specific); Del Pino advises
     against it in systematic reviews. ``evidence_level`` limits the search to one level of
     Haynes' pyramid by publication type, in the databases that index it (PubMed).
+    ``document_type`` limits it to one kind of document in the databases that tell it apart.
     """
 
     repeat_controlled_as_free: bool = False
     free_text_unindexed_only: bool = False
     evidence_level: EvidenceLevel | None = None
+    document_type: DocumentType | None = None
 
 
 @dataclass(frozen=True, slots=True)

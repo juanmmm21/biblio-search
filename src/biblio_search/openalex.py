@@ -20,6 +20,7 @@ from typing import Self
 import httpx
 
 from biblio_search.models import ArticleSummary, DatabaseError, SearchResult
+from biblio_search.openalex_query import split_filter
 from biblio_search.ratelimit import RateLimiter
 
 DEFAULT_BASE_URL = "https://api.openalex.org/"
@@ -241,9 +242,11 @@ class OpenAlexClient:
     async def search(self, term: str, *, retmax: int = 20, retstart: int = 0) -> SearchResult:
         """Search ``term`` in title and abstract; return the count and ``retmax`` work ids.
 
+        A ``FILTER type:...`` after the equation is sent as OpenAlex's ``filter`` parameter.
         Every page of up to 100 ids is one paid search call against the daily budget.
         """
-        if not term.strip():
+        text, type_filter = split_filter(term)
+        if not text.strip():
             raise ValueError("the search term cannot be empty")
         if retmax < 0 or retstart < 0:
             raise ValueError("retmax and retstart cannot be negative")
@@ -256,10 +259,15 @@ class OpenAlexClient:
         for page in range(first_page, last_page + 1):
             # Con retmax=0 basta el recuento: se pide una página mínima y se descarta.
             per_page = PAGE_SIZE if retmax else 1
-            payload = await self.get_json(
-                "works",
-                {SEARCH_PARAM: term, "select": "id", "per_page": str(per_page), "page": str(page)},
-            )
+            params = {
+                SEARCH_PARAM: text,
+                "select": "id",
+                "per_page": str(per_page),
+                "page": str(page),
+            }
+            if type_filter is not None:
+                params["filter"] = type_filter
+            payload = await self.get_json("works", params)
             result = parse_search(payload)
             ids.extend(result.ids)
             if len(result.ids) < per_page:
