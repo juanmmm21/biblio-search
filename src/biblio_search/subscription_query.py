@@ -16,6 +16,10 @@ question as the free ones (Del Pino's single equation adapted to every database)
 
 The three take ``*`` at the end of a word and inside quoted phrases, so every term keeps the
 truncation it was written with.
+
+Levels of evidence and document types become each database's own limit when it has one:
+CINAHL's publication type field (``PT``), Scopus' ``DOCTYPE()`` and Web of Science's ``DT=``.
+Only types those databases actually index are used; the rest are left to a note.
 """
 
 from __future__ import annotations
@@ -26,6 +30,8 @@ from typing import ClassVar
 from biblio_search.models import (
     Condition,
     ControlledScope,
+    DocumentType,
+    EvidenceLevel,
     FreeTextField,
     StrategyOptions,
     StructuredQuestion,
@@ -42,6 +48,52 @@ CINAHL_TAGS: dict[ControlledScope, tuple[str, bool]] = {
     ControlledScope.MAJOR_NO_EXPLODE: ("MM", False),
 }
 EXPLODE = "+"
+
+# Tipos de publicación de CINAHL (campo PT). «Research» marca los artículos de investigación
+# original, lo más cercano a quitar guías y revisiones que hace el filtro de PubMed.
+CINAHL_EVIDENCE_FILTERS: dict[EvidenceLevel, str] = {
+    EvidenceLevel.GUIDELINES: 'PT "Practice Guidelines"',
+    EvidenceLevel.SYSTEMATIC_REVIEWS: 'PT "Systematic Review"',
+    EvidenceLevel.ORIGINAL_STUDIES: 'PT "Research"',
+}
+CINAHL_TYPE_FILTERS: dict[DocumentType, str] = {
+    DocumentType.ARTICLE: 'PT "Journal Article"',
+    DocumentType.REVIEW: 'PT "Review"',
+    DocumentType.THESIS: '(PT "Doctoral Dissertation" OR PT "Masters Thesis")',
+    DocumentType.BOOK: '(PT "Book" OR PT "Book Chapter")',
+}
+# Scopus y Web of Science no indexan tesis ni preprints en sus colecciones principales.
+SCOPUS_TYPE_FILTERS: dict[DocumentType, str] = {
+    DocumentType.ARTICLE: "DOCTYPE(ar)",
+    DocumentType.REVIEW: "DOCTYPE(re)",
+    DocumentType.BOOK: "(DOCTYPE(bk) OR DOCTYPE(ch))",
+}
+WOS_TYPE_FILTERS: dict[DocumentType, str] = {
+    DocumentType.ARTICLE: "DT=(Article)",
+    DocumentType.REVIEW: "DT=(Review)",
+    DocumentType.BOOK: "(DT=(Book) OR DT=(Book Chapter))",
+}
+
+
+def apply_limits(
+    equation: str,
+    options: StrategyOptions,
+    evidence_filters: dict[EvidenceLevel, str],
+    type_filters: dict[DocumentType, str],
+) -> str:
+    """AND the database's own limits for the level of evidence and document type chosen.
+
+    The equation is wrapped first so that a trailing NOT of the question cannot swallow the
+    limit. A level or type the database cannot tell apart is left out (a note says so).
+    """
+    limits: list[str] = []
+    if options.evidence_level is not None and options.evidence_level in evidence_filters:
+        limits.append(evidence_filters[options.evidence_level])
+    if options.document_type is not None and options.document_type in type_filters:
+        limits.append(type_filters[options.document_type])
+    if not limits:
+        return equation
+    return f"({equation}) AND " + " AND ".join(limits)
 
 
 def phrase(term: Term) -> str:
@@ -129,7 +181,8 @@ class CinahlDialect:
         return "(" + " OR ".join(render_cinahl_term(t) for t in condition.terms) + ")"
 
     def render(self, question: StructuredQuestion, options: StrategyOptions) -> str:
-        return render_equation(question, options, self.vocabularies, self._group, "NOT")
+        equation = render_equation(question, options, self.vocabularies, self._group, "NOT")
+        return apply_limits(equation, options, CINAHL_EVIDENCE_FILTERS, CINAHL_TYPE_FILTERS)
 
     def notes(self, question: StructuredQuestion) -> tuple[str, ...]:
         headings = [t.text for t in question.controlled_terms if t.vocabulary is Vocabulary.MESH]
@@ -156,7 +209,8 @@ class ScopusDialect:
 
     def render(self, question: StructuredQuestion, options: StrategyOptions) -> str:
         # En Scopus, NOT a secas no existe como operador binario: se escribe AND NOT.
-        return render_equation(question, options, self.vocabularies, self._group, "AND NOT")
+        equation = render_equation(question, options, self.vocabularies, self._group, "AND NOT")
+        return apply_limits(equation, options, {}, SCOPUS_TYPE_FILTERS)
 
     def notes(self, question: StructuredQuestion) -> tuple[str, ...]:
         return _keywords_note(question, "Scopus", "TITLE-ABS-KEY")
@@ -176,7 +230,8 @@ class WebOfScienceDialect:
         return _fielded_group(condition, self.fields)
 
     def render(self, question: StructuredQuestion, options: StrategyOptions) -> str:
-        return render_equation(question, options, self.vocabularies, self._group, "NOT")
+        equation = render_equation(question, options, self.vocabularies, self._group, "NOT")
+        return apply_limits(equation, options, {}, WOS_TYPE_FILTERS)
 
     def notes(self, question: StructuredQuestion) -> tuple[str, ...]:
         return _keywords_note(question, "Web of Science", "TS=")

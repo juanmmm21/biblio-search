@@ -10,9 +10,14 @@ the user is told so.
 from __future__ import annotations
 
 from biblio_search.eric_query import DOCUMENT_TYPE_FILTERS as ERIC_FILTERS
-from biblio_search.models import Database, DocumentType
+from biblio_search.models import Database, DocumentType, ExportTarget
 from biblio_search.openalex_query import DOCUMENT_TYPE_FILTERS as OPENALEX_FILTERS
 from biblio_search.pubmed_query import DOCUMENT_TYPE_FILTERS as PUBMED_FILTERS
+from biblio_search.subscription_query import (
+    CINAHL_TYPE_FILTERS,
+    SCOPUS_TYPE_FILTERS,
+    WOS_TYPE_FILTERS,
+)
 
 DOCUMENT_TYPE_LABELS: dict[DocumentType, str] = {
     DocumentType.ARTICLE: "Journal articles",
@@ -28,6 +33,9 @@ SUPPORTED_TYPES: dict[str, frozenset[DocumentType]] = {
     Database.OPENALEX.value: frozenset(OPENALEX_FILTERS),
     Database.ERIC.value: frozenset(ERIC_FILTERS),
     Database.ARXIV.value: frozenset({DocumentType.PREPRINT}),
+    ExportTarget.CINAHL.value: frozenset(CINAHL_TYPE_FILTERS),
+    ExportTarget.SCOPUS.value: frozenset(SCOPUS_TYPE_FILTERS),
+    ExportTarget.WEB_OF_SCIENCE.value: frozenset(WOS_TYPE_FILTERS),
 }
 
 

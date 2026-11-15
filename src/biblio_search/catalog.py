@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from biblio_search.arxiv_query import ArxivDialect
-from biblio_search.document_types import DOCUMENT_TYPE_LABELS, document_type_note
+from biblio_search.document_types import document_type_note
 from biblio_search.eric_query import EricDialect
 from biblio_search.models import (
     Database,
@@ -80,23 +80,25 @@ def foreign_note(question: StructuredQuestion, dialect: QueryDialect) -> str | N
     return f"{label} does not index these headings, so they are searched as free text: {headings}"
 
 
+# Las bases que tienen tipos de publicación para la pirámide de Haynes.
+EVIDENCE_DIALECTS = frozenset({Database.PUBMED.value, ExportTarget.CINAHL.value})
+
+
 def evidence_note(dialect: QueryDialect, options: StrategyOptions) -> tuple[str, ...]:
-    """Warn that the level of evidence chosen only filters PubMed."""
-    if options.evidence_level is None or dialect.name == Database.PUBMED.value:
+    """Warn that the level of evidence chosen only filters PubMed and CINAHL."""
+    if options.evidence_level is None or dialect.name in EVIDENCE_DIALECTS:
         return ()
     label = _LABELS_BY_NAME.get(dialect.name, dialect.name)
     level = options.evidence_level.value.replace("_", " ")
     return (
-        f"{label} gets every type of record: the level of evidence ({level}) filters PubMed only",
+        f"{label} gets every type of record: the level of evidence ({level}) filters PubMed "
+        "and CINAHL only",
     )
 
 
 def type_note(dialect: QueryDialect, options: StrategyOptions) -> tuple[str, ...]:
     """Warn when the document type chosen cannot limit the search of ``dialect``."""
     label = _LABELS_BY_NAME.get(dialect.name, dialect.name)
-    if options.document_type is not None and dialect.name in EXPORT_NAMES:
-        kind = DOCUMENT_TYPE_LABELS[options.document_type].lower()
-        return (f"The {label} equation has no document type: limit it to {kind} in {label}",)
     note = document_type_note(dialect.name, label, options.document_type)
     return (note,) if note else ()
 
