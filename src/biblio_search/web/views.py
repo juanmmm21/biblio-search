@@ -296,6 +296,13 @@ def flow_view(summary: FlowSummary) -> JsonDict:
         "exclusion_reasons": [
             {"reason": reason, "count": count} for reason, count in summary.exclusion_reasons
         ],
+        "full_text_assessed": summary.full_text_assessed,
+        "full_text_pending": summary.full_text_pending,
+        "full_text_included": summary.full_text_included,
+        "full_text_excluded": summary.full_text_excluded,
+        "full_text_reasons": [
+            {"reason": reason, "count": count} for reason, count in summary.full_text_reasons
+        ],
     }
 
 
@@ -322,6 +329,9 @@ def entry_view(entry: ScreeningEntry) -> JsonDict:
         ],
         "decision": entry.decision.value if entry.decision is not None else None,
         "reason": entry.reason,
+        "needs_full_text": entry.needs_full_text,
+        "full_text": entry.full_text.value if entry.full_text is not None else None,
+        "full_text_reason": entry.full_text_reason,
         "found_via": [
             {
                 "seed_id": link.seed_id,

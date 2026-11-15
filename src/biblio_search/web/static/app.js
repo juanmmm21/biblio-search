@@ -907,6 +907,9 @@ const SCREENING_FILTERS = [
   ["maybe", "Maybe"],
   ["include", "Included"],
   ["exclude", "Excluded"],
+  ["full_text", "Full text to read"],
+  ["full_text_include", "In the review"],
+  ["full_text_exclude", "Excluded at full text"],
   ["all", "All"],
 ];
 const DECISIONS = [
@@ -978,11 +981,37 @@ function renderFlow(flow) {
     flowBox("included", flow.included, "include"),
   );
   diagram.append(top, outcomes);
+  if (flow.full_text_assessed && (flow.full_text_included || flow.full_text_excluded)) {
+    const second = el("div", "flow-row");
+    const ftExcluded = flowBox("excluded at full text", flow.full_text_excluded, "exclude");
+    if (flow.full_text_reasons.length) {
+      const reasons = el("ul", "flow-reasons");
+      reasons.append(...flow.full_text_reasons.map((r) => el("li", null, `${r.reason}: ${formatCount(r.count)}`)));
+      ftExcluded.append(reasons);
+    }
+    second.append(
+      flowBox("full texts assessed", flow.full_text_assessed, "strong"),
+      el("span", "flow-arrow", "→"),
+      flowBox("waiting for the full text", flow.full_text_pending, "pending"),
+      ftExcluded,
+      flowBox("included in the review", flow.full_text_included, "include"),
+    );
+    diagram.append(second);
+  }
   return diagram;
 }
 
 function renderFilters(flow) {
-  const counts = { pending: flow.pending, maybe: flow.maybe, include: flow.included, exclude: flow.excluded, all: flow.screened };
+  const counts = {
+    pending: flow.pending,
+    maybe: flow.maybe,
+    include: flow.included,
+    exclude: flow.excluded,
+    full_text: flow.full_text_pending,
+    full_text_include: flow.full_text_included,
+    full_text_exclude: flow.full_text_excluded,
+    all: flow.screened,
+  };
   $("screening-filters").replaceChildren(...SCREENING_FILTERS.map(([value, label]) => {
     const button = el("button", `filter${value === screeningFilter ? " active" : ""}`, `${label} (${formatCount(counts[value])})`);
     button.type = "button";
@@ -1026,7 +1055,55 @@ function screeningItem(entry) {
     actions.append(undo);
   }
   item.append(actions);
+  if (entry.needs_full_text) item.append(fullTextActions(entry));
   return item;
+}
+
+// Segunda fase: leído el texto completo, se incluye o se excluye con un motivo obligatorio.
+function fullTextActions(entry) {
+  const row = el("div", `screen-actions full-text ${entry.full_text || "pending"}`);
+  row.append(el("span", "full-text-label", entry.full_text === "include" ? "Full text: in the review" : entry.full_text === "exclude" ? "Full text: excluded" : "Full text:"));
+  const reason = el("input", "screen-reason");
+  reason.type = "text";
+  reason.maxLength = 500;
+  reason.placeholder = "Reason to exclude after reading it (required)";
+  reason.setAttribute("aria-label", "Reason for the full-text decision");
+  reason.value = entry.full_text_reason;
+  row.append(reason);
+  for (const [value, label] of [["include", "Include"], ["exclude", "Exclude"]]) {
+    const button = el("button", `button small decide ${value}${entry.full_text === value ? " chosen" : ""}`, label);
+    button.type = "button";
+    button.setAttribute("aria-pressed", String(entry.full_text === value));
+    button.addEventListener("click", () => {
+      if (value === "exclude" && !reason.value.trim()) {
+        reason.setCustomValidity("Say why the full text is excluded");
+        reason.reportValidity();
+        return;
+      }
+      reason.setCustomValidity("");
+      decideFullText(entry.id, value, reason.value, row);
+    });
+    row.append(button);
+  }
+  if (entry.full_text) {
+    const undo = el("button", "button small ghost", "Undo");
+    undo.type = "button";
+    undo.addEventListener("click", () => decideFullText(entry.id, null, "", row));
+    row.append(undo);
+  }
+  reason.addEventListener("input", () => reason.setCustomValidity(""));
+  return row;
+}
+
+async function decideFullText(id, decision, reason, row) {
+  for (const button of row.querySelectorAll("button")) button.disabled = true;
+  try {
+    await postJson(`/api/screening/records/${id}/full-text`, { decision, reason });
+    await loadScreening();
+  } catch (error) {
+    for (const button of row.querySelectorAll("button")) button.disabled = false;
+    row.append(el("span", "banner error", error.message));
+  }
 }
 
 // De qué registro incluido salió un candidato de la bola de nieve, y por qué camino.

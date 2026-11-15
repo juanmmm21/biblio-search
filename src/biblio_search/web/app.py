@@ -73,6 +73,7 @@ from biblio_search.screening import (
     Decision,
     EntryFilter,
     FlowSummary,
+    FullTextDecision,
     ScreeningError,
     ScreeningStore,
     merged_entries,
@@ -160,6 +161,12 @@ class SnowballRequest(BaseModel):
 class DecisionRequest(BaseModel):
     # None devuelve el registro a pendiente.
     decision: Decision | None
+    reason: str = Field(default="", max_length=MAX_REASON_LENGTH)
+
+
+class FullTextRequest(BaseModel):
+    # None devuelve el registro a la espera de su texto completo.
+    decision: FullTextDecision | None
     reason: str = Field(default="", max_length=MAX_REASON_LENGTH)
 
 
@@ -492,6 +499,15 @@ def create_app(
             entry = store.undecide(entry_id)
         else:
             entry = store.decide(entry_id, body.decision, body.reason)
+        return {"entry": entry_view(entry), "flow": flow(store)}
+
+    @app.post("/api/screening/records/{entry_id}/full-text")
+    async def decide_full_text(entry_id: int, body: FullTextRequest) -> dict[str, object]:
+        store = screening_to_write()
+        if body.decision is None:
+            entry = store.undecide_full_text(entry_id)
+        else:
+            entry = store.decide_full_text(entry_id, body.decision, body.reason)
         return {"entry": entry_view(entry), "flow": flow(store)}
 
     @app.get("/api/screening/export/{kind}")
