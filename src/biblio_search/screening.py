@@ -26,12 +26,21 @@ from biblio_search.question_file import dump_question
 from biblio_search.search_log import SearchLog, render_log
 from biblio_search.snowball import SnowballRun, render_snowball
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 DEFAULT_SCREENING_FILE = "screening.sqlite"
 MAX_REASON_LENGTH = 500
 NO_REASON = "no reason given"
 
-EntryFilter = Literal["all", "pending", "include", "exclude", "maybe"]
+EntryFilter = Literal[
+    "all",
+    "pending",
+    "include",
+    "exclude",
+    "maybe",
+    "full_text",
+    "full_text_include",
+    "full_text_exclude",
+]
 
 _SCHEMA = """
 CREATE TABLE searches (
@@ -84,6 +93,12 @@ CREATE TABLE snowball_links (
     search INTEGER NOT NULL REFERENCES searches(id),
     PRIMARY KEY (record, seed, relation)
 );
+CREATE TABLE full_text_decisions (
+    record INTEGER PRIMARY KEY REFERENCES records(id),
+    decision TEXT NOT NULL CHECK (decision IN ('include', 'exclude')),
+    reason TEXT NOT NULL,
+    decided_at TEXT NOT NULL
+);
 """
 # La versión 1 no distinguía búsquedas de rondas de bola de nieve ni guardaba de qué
 # registros se partió: todo lo que tenía era una búsqueda.
@@ -106,6 +121,16 @@ CREATE TABLE snowball_links (
     PRIMARY KEY (record, seed, relation)
 );
 """
+# La versión 3 solo cribaba por título y resumen.
+_MIGRATE_FROM_3 = """
+CREATE TABLE full_text_decisions (
+    record INTEGER PRIMARY KEY REFERENCES records(id),
+    decision TEXT NOT NULL CHECK (decision IN ('include', 'exclude')),
+    reason TEXT NOT NULL,
+    decided_at TEXT NOT NULL
+);
+"""
+_MIGRATIONS = {1: _MIGRATE_FROM_1, 2: _MIGRATE_FROM_2, 3: _MIGRATE_FROM_3}
 
 
 class ScreeningError(Exception):
@@ -118,6 +143,18 @@ class Decision(StrEnum):
     INCLUDE = "include"
     EXCLUDE = "exclude"
     MAYBE = "maybe"
+
+
+class FullTextDecision(StrEnum):
+    """What the reviewer decided after reading the full text of a record kept by title and
+    abstract (included or marked maybe). There is no maybe left at this stage."""
+
+    INCLUDE = "include"
+    EXCLUDE = "exclude"
+
+
+# Pasan a texto completo los incluidos y los dudosos por título y resumen.
+_FULL_TEXT_ELIGIBLE = "d.decision IN ('include', 'maybe')"
 
 
 class LinkRelation(StrEnum):
@@ -151,6 +188,13 @@ class ScreeningEntry:
     reason: str = ""
     decided_at: datetime | None = None
     found_via: tuple[SnowballLink, ...] = ()
+    full_text: FullTextDecision | None = None
+    full_text_reason: str = ""
+
+    @property
+    def needs_full_text(self) -> bool:
+        """Whether the record goes on to the full-text stage."""
+        return self.decision in (Decision.INCLUDE, Decision.MAYBE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,6 +230,18 @@ class FlowSummary:
     exclusion_reasons: tuple[tuple[str, int], ...]
     snowball_rounds: int = 0
     citation_identified: int = 0
+    full_text_included: int = 0
+    full_text_excluded: int = 0
+    full_text_reasons: tuple[tuple[str, int], ...] = ()
+
+    @property
+    def full_text_assessed(self) -> int:
+        """Records sought for full text: those included or marked maybe by title and abstract."""
+        return self.included + self.maybe
+
+    @property
+    def full_text_pending(self) -> int:
+        return self.full_text_assessed - self.full_text_included - self.full_text_excluded
 
     @property
     def duplicates(self) -> int:
@@ -231,8 +287,8 @@ class ScreeningStore:
                 with connection:
                     connection.executescript(_SCHEMA)
                     connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
-            elif version in (1, 2):
-                steps = (_MIGRATE_FROM_1 if version == 1 else "") + _MIGRATE_FROM_2
+            elif version in _MIGRATIONS:
+                steps = "".join(_MIGRATIONS[v] for v in range(version, SCHEMA_VERSION))
                 # executescript confirma lo pendiente antes de empezar: se abre la
                 # transacción dentro del guion para que la migración sea todo o nada.
                 connection.executescript(
@@ -421,13 +477,51 @@ class ScreeningStore:
                 " reason = excluded.reason, decided_at = excluded.decided_at",
                 (entry_id, decision.value, reason, _now()),
             )
+            if decision is Decision.EXCLUDE:
+                # Excluido por título y resumen ya no llega a texto completo.
+                db.execute("DELETE FROM full_text_decisions WHERE record = ?", (entry_id,))
         return self.entry(entry_id)
 
     def undecide(self, entry_id: int) -> ScreeningEntry:
         """Take back the decision about a record, which goes back to pending."""
         self._require(entry_id)
         with self._transaction() as db:
+            db.execute("DELETE FROM full_text_decisions WHERE record = ?", (entry_id,))
             db.execute("DELETE FROM decisions WHERE record = ?", (entry_id,))
+        return self.entry(entry_id)
+
+    def decide_full_text(
+        self, entry_id: int, decision: FullTextDecision, reason: str = ""
+    ) -> ScreeningEntry:
+        """Record the decision after reading the full text; excluding needs a reason.
+
+        Only records included or marked maybe by title and abstract reach this stage.
+        """
+        reason = " ".join(reason.split())
+        if len(reason) > MAX_REASON_LENGTH:
+            raise ScreeningError(f"a reason can have at most {MAX_REASON_LENGTH} characters")
+        if decision is FullTextDecision.EXCLUDE and not reason:
+            raise ScreeningError("excluding a record after reading its full text needs a reason")
+        if not self.entry(entry_id).needs_full_text:
+            raise ScreeningError(
+                f"record {entry_id} is not included nor marked maybe by title and abstract, "
+                "so it has no full text to assess"
+            )
+        with self._transaction() as db:
+            db.execute(
+                "INSERT INTO full_text_decisions (record, decision, reason, decided_at)"
+                " VALUES (?, ?, ?, ?) ON CONFLICT (record) DO UPDATE SET"
+                " decision = excluded.decision, reason = excluded.reason,"
+                " decided_at = excluded.decided_at",
+                (entry_id, decision.value, reason, _now()),
+            )
+        return self.entry(entry_id)
+
+    def undecide_full_text(self, entry_id: int) -> ScreeningEntry:
+        """Take back the full-text decision; the record waits for its full text again."""
+        self._require(entry_id)
+        with self._transaction() as db:
+            db.execute("DELETE FROM full_text_decisions WHERE record = ?", (entry_id,))
         return self.entry(entry_id)
 
     def _require(self, entry_id: int) -> None:
@@ -442,10 +536,14 @@ class ScreeningStore:
         return entries[0]
 
     def to_snowball(self) -> tuple[ScreeningEntry, ...]:
-        """The included records no snowballing round has started from yet."""
+        """The included records no snowballing round has started from yet.
+
+        A record excluded after reading its full text is not followed.
+        """
         return self._select(
-            "WHERE d.decision = ? AND r.id NOT IN (SELECT record FROM snowballed)",
-            (Decision.INCLUDE.value,),
+            "WHERE d.decision = ? AND r.id NOT IN (SELECT record FROM snowballed)"
+            " AND (f.decision IS NULL OR f.decision != ?)",
+            (Decision.INCLUDE.value, FullTextDecision.EXCLUDE.value),
         )
 
     def entries(self, which: EntryFilter = "all") -> tuple[ScreeningEntry, ...]:
@@ -454,13 +552,19 @@ class ScreeningStore:
             return self._select("", ())
         if which == "pending":
             return self._select("WHERE d.decision IS NULL", ())
+        if which == "full_text":
+            return self._select(f"WHERE {_FULL_TEXT_ELIGIBLE} AND f.decision IS NULL", ())
+        if which in ("full_text_include", "full_text_exclude"):
+            decision = FullTextDecision(which.removeprefix("full_text_"))
+            return self._select(f"WHERE {_FULL_TEXT_ELIGIBLE} AND f.decision = ?", (decision,))
         return self._select("WHERE d.decision = ?", (Decision(which).value,))
 
     def _select(self, where: str, params: Sequence[object]) -> tuple[ScreeningEntry, ...]:
         rows = self._db.execute(
             "SELECT r.id, r.title, r.authors, r.journal, r.year, r.doi, r.pmid,"
-            " r.publication_types, d.decision, d.reason, d.decided_at"
-            f" FROM records r LEFT JOIN decisions d ON d.record = r.id {where} ORDER BY r.id",
+            " r.publication_types, d.decision, d.reason, d.decided_at, f.decision, f.reason"
+            " FROM records r LEFT JOIN decisions d ON d.record = r.id"
+            f" LEFT JOIN full_text_decisions f ON f.record = r.id {where} ORDER BY r.id",
             params,
         ).fetchall()
         sources: dict[int, list[RecordSource]] = {}
@@ -490,7 +594,8 @@ class ScreeningStore:
     def _entry(
         row: tuple[object, ...], sources: list[RecordSource], links: list[SnowballLink]
     ) -> ScreeningEntry:
-        entry_id, title, authors, journal, year, doi, pmid, types, decision, reason, at = row
+        entry_id, title, authors, journal, year, doi, pmid, types, decision, reason, at = row[:11]
+        full_text, full_text_reason = row[11:]
         first = sources[0] if sources else None
         record = ArticleSummary(
             record_id=first.record_id if first else "",
@@ -511,6 +616,8 @@ class ScreeningStore:
             reason=str(reason) if reason is not None else "",
             decided_at=datetime.fromisoformat(str(at)) if at is not None else None,
             found_via=tuple(links),
+            full_text=FullTextDecision(str(full_text)) if full_text is not None else None,
+            full_text_reason=str(full_text_reason) if full_text_reason is not None else "",
         )
 
     def summary(self) -> FlowSummary:
@@ -530,6 +637,18 @@ class ScreeningStore:
             " FROM decisions WHERE decision = 'exclude' GROUP BY label ORDER BY n DESC, label",
             (NO_REASON,),
         ).fetchall()
+        full_text = dict(
+            db.execute(
+                "SELECT f.decision, count(*) FROM full_text_decisions f"
+                f" JOIN decisions d ON d.record = f.record WHERE {_FULL_TEXT_ELIGIBLE}"
+                " GROUP BY f.decision"
+            )
+        )
+        full_text_reasons = db.execute(
+            "SELECT f.reason, count(*) AS n FROM full_text_decisions f"
+            f" JOIN decisions d ON d.record = f.record WHERE {_FULL_TEXT_ELIGIBLE}"
+            " AND f.decision = 'exclude' GROUP BY f.reason ORDER BY n DESC, f.reason"
+        ).fetchall()
         return FlowSummary(
             searches=int(searches),
             identified=int(identified),
@@ -540,6 +659,9 @@ class ScreeningStore:
             exclusion_reasons=tuple((str(label), int(n)) for label, n in reasons),
             snowball_rounds=snowball_rounds,
             citation_identified=citation_identified,
+            full_text_included=int(full_text.get(FullTextDecision.INCLUDE.value, 0)),
+            full_text_excluded=int(full_text.get(FullTextDecision.EXCLUDE.value, 0)),
+            full_text_reasons=tuple((str(label), int(n)) for label, n in full_text_reasons),
         )
 
     def search_logs(self) -> tuple[str, ...]:
@@ -575,4 +697,12 @@ def render_flow(summary: FlowSummary) -> str:
         f"  Maybe (full text needed): {summary.maybe:,}",
         f"  Included: {summary.included:,}",
     ]
+    if summary.full_text_included or summary.full_text_excluded:
+        lines += [
+            f"Full texts assessed (included or maybe): {summary.full_text_assessed:,}",
+            f"  Pending: {summary.full_text_pending:,}",
+            f"  Excluded: {summary.full_text_excluded:,}",
+        ]
+        lines += [f"    {reason}: {count:,}" for reason, count in summary.full_text_reasons]
+        lines.append(f"  Included in the review: {summary.full_text_included:,}")
     return "\n".join(lines)
