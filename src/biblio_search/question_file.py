@@ -213,7 +213,8 @@ def _term_data(term: Term) -> str | dict[str, str]:
     return term.text if len(table) == 1 else table
 
 
-def _condition_data(condition: Condition) -> dict[str, object]:
+def condition_data(condition: Condition) -> dict[str, object]:
+    """A condition in the shape of the question file (and of the web form)."""
     data: dict[str, object] = {"label": condition.label}
     if condition.controlled_terms:
         data["controlled"] = [_term_data(t) for t in condition.controlled_terms]
@@ -238,11 +239,11 @@ def question_to_data(question: StructuredQuestion, options: StrategyOptions) -> 
             item["role"] = component.role.value
         item["description"] = component.description
         if component.conditions:
-            item["conditions"] = [_condition_data(c) for c in component.conditions]
+            item["conditions"] = [condition_data(c) for c in component.conditions]
         components.append(item)
     data["components"] = components
     if question.exclusions:
-        data["exclusions"] = [_condition_data(c) for c in question.exclusions]
+        data["exclusions"] = [condition_data(c) for c in question.exclusions]
     chosen: dict[str, object] = {
         "repeat_controlled_as_free": options.repeat_controlled_as_free,
         "free_text_unindexed_only": options.free_text_unindexed_only,

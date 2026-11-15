@@ -545,8 +545,24 @@ async def _draft(args: argparse.Namespace) -> Draft:
         )
 
 
+def format_suggested_exclusions(draft: Draft) -> str:
+    """The NOT conditions the model proposed, ready to paste under the question file."""
+    lines = [
+        "Suggested exclusions (not added: NOT also drops records that mention both; paste the "
+        "ones you agree with at the end of the question file):"
+    ]
+    for suggestion in draft.exclusions:
+        lines.append(f"  {suggestion.condition.label}: {suggestion.reason}")
+    with_all = replace(draft.question, exclusions=tuple(e.condition for e in draft.exclusions))
+    toml = dump_question(with_all, StrategyOptions())
+    lines += ["", toml[toml.index("[[exclusions]]") :].rstrip("\n")]
+    return "\n".join(lines)
+
+
 def _print_draft(draft: Draft, output: Path | None) -> None:
     blocks = [format_draft(draft)]
+    if draft.exclusions:
+        blocks.append(format_suggested_exclusions(draft))
     if draft.check is not None:
         equation = DIALECTS[Database.PUBMED].render(draft.question, StrategyOptions())
         # El modelo escribe los encabezados en inglés: el aviso de DeCS no aplica aquí.
