@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from biblio_search.arxiv_query import ArxivDialect
+from biblio_search.document_types import DOCUMENT_TYPE_LABELS, document_type_note
 from biblio_search.eric_query import EricDialect
 from biblio_search.models import (
     Database,
@@ -49,6 +50,7 @@ EXPORT_LABELS = {
     ExportTarget.SCOPUS: "Scopus",
     ExportTarget.WEB_OF_SCIENCE: "Web of Science",
 }
+EXPORT_NAMES = frozenset(target.value for target in ExportTarget)
 _LABELS_BY_NAME: dict[str, str] = {
     **{database.value: label for database, label in DATABASE_LABELS.items()},
     **{target.value: label for target, label in EXPORT_LABELS.items()},
@@ -89,12 +91,27 @@ def evidence_note(dialect: QueryDialect, options: StrategyOptions) -> tuple[str,
     )
 
 
+def type_note(dialect: QueryDialect, options: StrategyOptions) -> tuple[str, ...]:
+    """Warn when the document type chosen cannot limit the search of ``dialect``."""
+    label = _LABELS_BY_NAME.get(dialect.name, dialect.name)
+    if options.document_type is not None and dialect.name in EXPORT_NAMES:
+        kind = DOCUMENT_TYPE_LABELS[options.document_type].lower()
+        return (f"The {label} equation has no document type: limit it to {kind} in {label}",)
+    note = document_type_note(dialect.name, label, options.document_type)
+    return (note,) if note else ()
+
+
 def dialect_notes(
     question: StructuredQuestion, dialect: QueryDialect, options: StrategyOptions
 ) -> tuple[str, ...]:
     """Everything the user should know about how ``dialect`` searches ``question``."""
     note = foreign_note(question, dialect)
-    return ((note,) if note else ()) + dialect.notes(question) + evidence_note(dialect, options)
+    return (
+        ((note,) if note else ())
+        + dialect.notes(question)
+        + evidence_note(dialect, options)
+        + type_note(dialect, options)
+    )
 
 
 def export_reasons(question: StructuredQuestion) -> dict[ExportTarget, tuple[str, ...]]:

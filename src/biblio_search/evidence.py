@@ -92,10 +92,11 @@ async def evidence_ladder(
     """Count the question in PubMed without a level filter and at every level of the ladder.
 
     Only counts are asked for (``retmax=0``). A level already chosen in ``options`` is
-    ignored: the ladder is what helps choose it.
+    ignored, since the ladder is what helps choose it, and so is a document type, which
+    would cut across the levels (only reviews would leave no guidelines to count).
     """
     dialect = PubMedDialect()
-    plain = replace(options, evidence_level=None)
+    plain = replace(options, evidence_level=None, document_type=None)
     equation = dialect.render(question, plain)
     total = (await backend.search(equation, retmax=0)).count
     levels: list[LevelCount] = []
