@@ -66,7 +66,7 @@ function emptyQuestion(format) {
     arxiv_categories: [],
     components: ROLES[format].map(emptyComponent),
     exclusions: [],
-    options: { repeat_controlled_as_free: false, free_text_unindexed_only: false, evidence_level: "" },
+    options: { repeat_controlled_as_free: false, free_text_unindexed_only: false, evidence_level: "", document_type: "" },
   };
 }
 
@@ -114,6 +114,7 @@ function toData(q) {
   if (q.options.repeat_controlled_as_free) options.repeat_controlled_as_free = true;
   if (q.options.free_text_unindexed_only) options.free_text_unindexed_only = true;
   if (q.options.evidence_level) options.evidence_level = q.options.evidence_level;
+  if (q.options.document_type) options.document_type = q.options.document_type;
   if (Object.keys(options).length) data.options = options;
   return data;
 }
@@ -160,6 +161,7 @@ function fromData(data) {
       repeat_controlled_as_free: Boolean(data.options && data.options.repeat_controlled_as_free),
       free_text_unindexed_only: Boolean(data.options && data.options.free_text_unindexed_only),
       evidence_level: (data.options && data.options.evidence_level) || "",
+      document_type: (data.options && data.options.document_type) || "",
     },
   };
   if (format !== "concepts") {
@@ -294,6 +296,7 @@ function renderForm() {
   $("opt-repeat").checked = state.options.repeat_controlled_as_free;
   $("opt-unindexed").checked = state.options.free_text_unindexed_only;
   $("opt-evidence").value = state.options.evidence_level;
+  $("opt-document-type").value = state.options.document_type;
   const components = state.components.map(renderComponent);
   if (state.format === "concepts") {
     const add = el("button", "button add-concept", "+ Concept");
@@ -373,6 +376,10 @@ function setupStaticForm() {
   });
   $("opt-evidence").addEventListener("change", (e) => {
     state.options.evidence_level = e.target.value;
+    schedulePreview();
+  });
+  $("opt-document-type").addEventListener("change", (e) => {
+    state.options.document_type = e.target.value;
     schedulePreview();
   });
   $("add-exclusion").addEventListener("click", () => {
