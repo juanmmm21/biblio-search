@@ -1,0 +1,17 @@
+{
+  "model": "qwen3:8b",
+  "created_at": "2026-11-15T10:32:37.72493253Z",
+  "message": {
+    "role": "assistant",
+    "content": "{\n  \"english\": \"Can neural networks decode quantum error correction codes better than classical decoders?\",\n  \"concepts\": [\n    {\n      \"description\": \"Neural networks\",\n      \"conditions\": [\n        {\n          \"label\": \"Neural networks\",\n          \"free\": [\"neural network*\", \"deep learning*\", \"artificial neural network*\"]\n        }\n      ]\n    },\n    {\n      \"description\": \"Quantum error correction codes\",\n      \"conditions\": [\n        {\n          \"label\": \"Quantum error correction codes\",\n          \"free\": [\"quantum error correction\", \"quantum code*\", \"quantum error correction code*\"]\n        }\n      ]\n    },\n    {\n      \"description\": \"Classical decoders\",\n      \"conditions\": [\n        {\n          \"label\": \"Classical decoders\",\n          \"free\": [\"classical decoder*\", \"traditional decoder*\", \"non-quantum decoder*\"]\n        }\n      ]\n    }\n  ],\n  \"arxiv_categories\": [\"quant-ph\", \"cs.IT\", \"cs.LG\"],\n  \"exclusions\": []\n}"
+  },
+  "done": true,
+  "done_reason": "stop",
+  "total_duration": 3365957003,
+  "load_duration": 1053710,
+  "prompt_eval_count": 596,
+  "prompt_eval_cached_count": 195,
+  "prompt_eval_duration": 156386000,
+  "eval_count": 226,
+  "eval_duration": 3165845000
+}

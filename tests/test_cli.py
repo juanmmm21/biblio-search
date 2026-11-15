@@ -843,6 +843,38 @@ def test_draft_prints_suggested_exclusions_apart(
     assert question.exclusions == ()
 
 
+def test_draft_checks_eric_descriptors_for_education(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.delenv("ERIC_THESAURUS", raising=False)
+    _patch_ollama(monkeypatch, [], topic="tutoring")
+    _patch_mesh_client(monkeypatch, [])
+    _patch_eric(monkeypatch, [])
+    text = "¿La tutoría entre iguales mejora la comprensión lectora en primaria?"
+    assert main(["draft", text]) == 0
+    out = capsys.readouterr().out
+    assert "Discipline: education · format: concepts" in out
+    assert "Peer Teaching [ERIC]" in out
+    assert "ERIC check of 3 controlled terms" in out
+    assert "ok          Peer Teaching" in out
+    assert "Equation after the check: " in out and 'Peer Teaching"' in out
+
+
+def test_draft_proposes_arxiv_categories(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _patch_ollama(monkeypatch, [], topic="decoders")
+    _patch_mesh_client(monkeypatch, [])
+    text = (
+        "¿Pueden las redes neuronales decodificar códigos de corrección de errores cuánticos "
+        "mejor que los decodificadores clásicos?"
+    )
+    assert main(["draft", text]) == 0
+    out = capsys.readouterr().out
+    assert "  arXiv categories: quant-ph, cs.IT, cs.LG" in out
+    assert 'arxiv_categories = ["quant-ph", "cs.IT", "cs.LG"]' in out
+
+
 def test_draft_keeps_the_chosen_format_and_prints_the_file(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

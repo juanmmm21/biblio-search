@@ -1,0 +1,17 @@
+{
+  "model": "qwen3:8b",
+  "created_at": "2026-11-15T10:32:31.324546556Z",
+  "message": {
+    "role": "assistant",
+    "content": "{\n  \"discipline\": \"education\",\n  \"format\": \"concepts\"\n}"
+  },
+  "done": true,
+  "done_reason": "stop",
+  "total_duration": 7031623211,
+  "load_duration": 6444068774,
+  "prompt_eval_count": 145,
+  "prompt_eval_cached_count": 0,
+  "prompt_eval_duration": 267906999,
+  "eval_count": 19,
+  "eval_duration": 310083000
+}

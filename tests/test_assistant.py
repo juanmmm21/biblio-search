@@ -8,6 +8,7 @@ import httpx
 import pytest
 from conftest import load_fixture
 
+from biblio_search.arxiv_categories import ARXIV_CATEGORIES
 from biblio_search.assistant import (
     CLASSIFY_SCHEMA,
     DEFAULT_MODEL,
@@ -295,7 +296,7 @@ MEMORY = (
 
 
 def test_the_prompt_asks_for_narrow_exclusions_only() -> None:
-    prompt = draft_prompt(QuestionFormat.PICO, use_mesh=True)
+    prompt = draft_prompt(QuestionFormat.PICO, discipline=Discipline.HEALTH)
     assert '"exclusions"' in prompt and "usually an empty list" in prompt
     assert "Never exclude what is merely not mentioned" in prompt
 
@@ -365,3 +366,104 @@ def test_draft_without_exclusions_suggests_none() -> None:
         )
     )
     assert draft.exclusions == ()
+
+
+TUTORING = "¿La tutoría entre iguales mejora la comprensión lectora en primaria?"
+DECODERS = (
+    "¿Pueden las redes neuronales decodificar códigos de corrección de errores cuánticos mejor "
+    "que los decodificadores clásicos?"
+)
+
+
+def _properties(schema: Mapping[str, object]) -> Mapping[str, object]:
+    properties = schema["properties"]
+    assert isinstance(properties, dict)
+    return properties
+
+
+def _condition_keys(schema: Mapping[str, object]) -> list[str]:
+    concepts = _properties(schema)["concepts"]
+    assert isinstance(concepts, dict)
+    component = concepts["items"]
+    conditions = _properties(component)["conditions"]
+    assert isinstance(conditions, dict)
+    return list(_properties(conditions["items"]))
+
+
+def test_each_discipline_gets_its_own_descriptor_key_and_arxiv_categories() -> None:
+    education = draft_schema(QuestionFormat.CONCEPTS, Discipline.EDUCATION)
+    physics = draft_schema(QuestionFormat.CONCEPTS, Discipline.PHYSICS)
+    assert _condition_keys(education) == ["label", "eric", "free"]
+    assert _condition_keys(physics) == ["label", "free"]
+    assert "arxiv_categories" not in _properties(education)
+    categories = _properties(physics)["arxiv_categories"]
+    assert isinstance(categories, dict)
+    assert categories["items"] == {"type": "string", "enum": list(ARXIV_CATEGORIES)}
+    assert "arxiv_categories" in physics["required"]  # type: ignore[operator]
+    prompt = draft_prompt(QuestionFormat.CONCEPTS, discipline=Discipline.EDUCATION)
+    assert "ERIC Thesaurus descriptors" in prompt and "arxiv_categories" not in prompt
+    prompt = draft_prompt(QuestionFormat.CONCEPTS, discipline=Discipline.MATHEMATICS)
+    assert '"arxiv_categories"' in prompt and '"mesh"' not in prompt
+
+
+def test_parse_draft_reads_eric_descriptors_for_education() -> None:
+    payload = _content("ollama_draft_tutoring.json")
+    question, english, notes = parse_draft(
+        payload, TUTORING, QuestionFormat.CONCEPTS, Discipline.EDUCATION
+    )
+    assert english == "Does peer tutoring improve reading comprehension in primary school?"
+    assert [(t.text, t.vocabulary) for t in question.controlled_terms] == [
+        ("Peer Teaching", Vocabulary.ERIC),
+        ("Reading Comprehension", Vocabulary.ERIC),
+        ("Elementary School Students", Vocabulary.ERIC),
+    ]
+    assert question.arxiv_categories == () and notes == ()
+
+
+def test_parse_draft_keeps_only_real_arxiv_categories() -> None:
+    payload = dict(_content("ollama_draft_decoders.json"))
+    question, _, notes = parse_draft(
+        payload, DECODERS, QuestionFormat.CONCEPTS, Discipline.COMPUTER_SCIENCE
+    )
+    assert question.arxiv_categories == ("quant-ph", "cs.IT", "cs.LG")
+    assert question.controlled_terms == ()
+    payload["arxiv_categories"] = ["quant-ph", "cs.QML", "quant-ph", "physics.*", "cs.LG", "cs.AI"]
+    question, _, notes = parse_draft(payload, DECODERS, QuestionFormat.CONCEPTS, Discipline.PHYSICS)
+    assert question.arxiv_categories == ("quant-ph", "physics.*", "cs.LG", "cs.AI")
+    assert notes == ("left out 'cs.QML': it is not an arXiv category",)
+    # Fuera de las disciplinas de arXiv no se proponen categorías.
+    question, _, _ = parse_draft(payload, DECODERS, QuestionFormat.CONCEPTS, Discipline.EDUCATION)
+    assert question.arxiv_categories == ()
+
+
+class FakeEric(FakeMesh):
+    name = Vocabulary.ERIC.value
+
+
+def test_draft_question_checks_eric_descriptors_with_the_eric_thesaurus() -> None:
+    model = FakeModel(
+        [_content("ollama_classify_tutoring.json"), _content("ollama_draft_tutoring.json")]
+    )
+    mesh = FakeMesh({})
+    eric = FakeEric({"Peer Teaching": "", "Reading Comprehension": ""})
+    draft = asyncio.run(draft_question(TUTORING, model, thesaurus=mesh, eric_thesaurus=eric))
+    assert mesh.asked == []
+    assert sorted(eric.asked) == [
+        "Elementary School Students",
+        "Peer Teaching",
+        "Reading Comprehension",
+    ]
+    assert draft.check is not None and draft.check.vocabulary == Vocabulary.ERIC.value
+    pupils = draft.question.conditions[2].terms[0]
+    assert (pupils.text, pupils.kind) == ("Elementary School Students", TermKind.FREE)
+    assert model.calls[1][2] == draft_schema(QuestionFormat.CONCEPTS, Discipline.EDUCATION)
+
+
+def test_draft_question_proposes_arxiv_categories() -> None:
+    model = FakeModel(
+        [_content("ollama_classify_decoders.json"), _content("ollama_draft_decoders.json")]
+    )
+    draft = asyncio.run(draft_question(DECODERS, model, thesaurus=FakeMesh({})))
+    assert draft.question.discipline is Discipline.COMPUTER_SCIENCE
+    assert draft.question.arxiv_categories == ("quant-ph", "cs.IT", "cs.LG")
+    assert draft.check is None

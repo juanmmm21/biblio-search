@@ -1,0 +1,17 @@
+{
+  "model": "qwen3:8b",
+  "created_at": "2026-11-15T10:32:33.899971056Z",
+  "message": {
+    "role": "assistant",
+    "content": "{\"english\": \"Does peer tutoring improve reading comprehension in primary school?\", \"concepts\": [{\"description\": \"Peer tutoring\", \"conditions\": [{\"label\": \"peer tutoring\", \"eric\": [\"Peer Teaching\"], \"free\": [\"peer tutor*\", \"cross-age tutor*\", \"peer-assisted learning\"]}]}, {\"description\": \"Reading comprehension\", \"conditions\": [{\"label\": \"reading comprehension\", \"eric\": [\"Reading Comprehension\"], \"free\": [\"reading comprehension\", \"reading skill*\"]}]}, {\"description\": \"Primary school pupils\", \"conditions\": [{\"label\": \"primary school\", \"eric\": [\"Elementary School Students\"], \"free\": [\"primary school*\", \"elementary school*\", \"pupil*\"]}]}], \"exclusions\": []}"
+  },
+  "done": true,
+  "done_reason": "stop",
+  "total_duration": 2559984643,
+  "load_duration": 971145,
+  "prompt_eval_count": 572,
+  "prompt_eval_cached_count": 3,
+  "prompt_eval_duration": 243808000,
+  "eval_count": 161,
+  "eval_duration": 2279445000
+}

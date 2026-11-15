@@ -982,6 +982,20 @@ def test_draft_suggests_exclusions_without_adding_them() -> None:
     assert " NOT (" in pubmed and "rat*[tiab]" in pubmed
 
 
+def test_draft_loads_the_arxiv_categories_it_proposes() -> None:
+    text = (
+        "¿Pueden las redes neuronales decodificar códigos de corrección de errores cuánticos "
+        "mejor que los decodificadores clásicos?"
+    )
+    with make_client(assistant=RecordedOllama(topic="decoders")) as client:
+        body = client.post("/api/draft", json={"text": text}).json()
+        preview = client.post("/api/preview", json=body["question"]).json()
+    assert body["question"]["arxiv_categories"] == ["quant-ph", "cs.IT", "cs.LG"]
+    assert body["check"] is None
+    arxiv = next(e for e in preview["equations"] if e["database"] == "arxiv")
+    assert "(cat:quant-ph OR cat:cs.IT OR cat:cs.LG)" in arxiv["equation"]
+
+
 def test_draft_fills_the_form_and_checks_the_headings() -> None:
     ollama = RecordedOllama()
     with make_client(assistant=ollama) as client:
