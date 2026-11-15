@@ -248,6 +248,7 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent-soft
 .equation .op-and { color: #ffb86b; font-weight: 700; }
 .equation .op-or { color: #9fd3c7; font-weight: 700; }
 .equation .op-not { color: #ff8a80; font-weight: 700; }
+.equation .op-filter { color: #c3a6ff; font-weight: 700; }
 .equation .paren { color: #8a979b; }
 .equation .ftag.controlled { color: #7fd1c8; }
 .equation .ftag.free { color: #f5c97a; }
@@ -392,3 +393,6 @@ a.button { text-decoration: none; display: inline-block; }
 #snowball-status { margin: 8px 0 0; }
 #snowball-status:empty { display: none; }
 .snowball-left-out { margin: 4px 0 0; padding-left: 18px; }
+
+.found-via { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
+.found-via-label { font-weight: 600; }

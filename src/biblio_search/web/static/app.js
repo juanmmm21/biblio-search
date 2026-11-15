@@ -29,6 +29,8 @@ const SCOPES = [
   ["heading_no_explode", "Heading, no explode"],
   ["major_no_explode", "Major, no explode"],
 ];
+// ERIC no tiene descriptores mayores ni explosión: solo hay una forma de buscarlos.
+const ERIC_SCOPES = [["heading", "Descriptor"]];
 const FIELDS = [
   ["title_abstract", "Title/abstract [tiab]"],
   ["title", "Title [ti]"],
@@ -193,7 +195,11 @@ function renderTerm(term, list, index, rerender) {
   text.value = term.text;
   text.placeholder = term.kind === "free" ? "e.g. caregiv*" : "e.g. Caregivers";
   if (term.kind === "free") fillOptions(option, FIELDS, term.field);
-  else fillOptions(option, SCOPES, term.scope);
+  else if (term.kind === "eric") {
+    term.scope = "heading";
+    fillOptions(option, ERIC_SCOPES, term.scope);
+  } else fillOptions(option, SCOPES, term.scope);
+  option.disabled = term.kind === "eric";
   kind.addEventListener("change", () => {
     term.kind = kind.value;
     rerender();
@@ -536,16 +542,21 @@ const FIELD_CODES = /^(?:MH|MM|TI|AB|TITLE-ABS-KEY|TITLE|TS=|TI=)$/;
 
 function highlight(equation) {
   const out = el("code", "equation");
-  const pattern = /("[^"]*"|\[[^\]]+\]|\b(?:AND|OR|NOT)\b|TITLE-ABS-KEY|T[SI]=|[()]|\s+|[^\s()"[]+)/g;
+  const pattern = /("[^"]*"|\[[^\]]+\]|\b(?:AND|OR|NOT|FILTER)\b|TITLE-ABS-KEY|T[SI]=|[()]|\s+|[^\s()"[]+)/g;
+  let afterFilter = false;
   for (const [token] of equation.matchAll(pattern)) {
     let cls = null;
     if (/^(AND|OR|NOT)$/.test(token)) cls = `op-${token.toLowerCase()}`;
+    else if (token === "FILTER") cls = "op-filter";
+    // Lo que sigue a FILTER en OpenAlex son filtros (type:review), no términos.
+    else if (afterFilter && /\S/.test(token)) cls = "ftag filter";
     else if (token === "(" || token === ")") cls = "paren";
     else if (FIELD_CODES.test(token)) cls = "ftag free";
     else if (token.startsWith("[")) {
       const tag = token.slice(1, -1);
       cls = CONTROLLED_TAGS.has(tag) ? "ftag controlled" : tag === "sb" ? "ftag filter" : "ftag free";
     } else if (token.startsWith('"')) cls = "phrase";
+    if (token === "FILTER") afterFilter = true;
     out.append(cls ? el("span", cls, token) : document.createTextNode(token));
   }
   return out;
@@ -988,6 +999,7 @@ function screeningItem(entry) {
   const ids = entry.sources.map((s) => externalLink("hint", `${s.id_label} ${s.id}`, s.url));
   item.append(title, recordMeta(entry, ids));
   if (entry.publication_types.length) item.append(typeChips(entry));
+  if (entry.found_via.length) item.append(foundVia(entry.found_via));
   const actions = el("div", "screen-actions");
   const reason = el("input", "screen-reason");
   reason.type = "text";
@@ -1012,6 +1024,18 @@ function screeningItem(entry) {
   }
   item.append(actions);
   return item;
+}
+
+// De qué registro incluido salió un candidato de la bola de nieve, y por qué camino.
+function foundVia(links) {
+  const line = el("p", "found-via");
+  line.append(el("span", "found-via-label", "Snowballing: "));
+  links.forEach((link, index) => {
+    if (index) line.append(document.createTextNode("; "));
+    const how = link.relation === "cited_by" ? "in the references of" : "cites";
+    line.append(document.createTextNode(`${how} #${link.seed_id} `), el("em", null, link.seed_title || "(no title)"));
+  });
+  return line;
 }
 
 async function decide(id, decision, reason, actions) {

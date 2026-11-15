@@ -322,6 +322,14 @@ def entry_view(entry: ScreeningEntry) -> JsonDict:
         ],
         "decision": entry.decision.value if entry.decision is not None else None,
         "reason": entry.reason,
+        "found_via": [
+            {
+                "seed_id": link.seed_id,
+                "seed_title": link.seed_title,
+                "relation": link.relation.value,
+            }
+            for link in entry.found_via
+        ],
     }
 
 
