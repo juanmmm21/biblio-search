@@ -367,12 +367,19 @@ def create_app(
         model: LanguageModel | None = app.state.assistant
         if model is None:
             raise AssistantError("this interface was started without the local assistant")
+        eric = app.state.backends.get(Database.ERIC)
+        eric_thesaurus_used: Thesaurus | None = None
+        if eric_thesaurus is not None:
+            eric_thesaurus_used = EricFileThesaurus(eric_thesaurus)
+        elif isinstance(eric, EricClient):
+            eric_thesaurus_used = EricApiThesaurus(eric)
         result = await draft_question(
             body.text,
             model,
             discipline=body.discipline,
             question_format=body.format,
             thesaurus=MeshThesaurus(client()),
+            eric_thesaurus=eric_thesaurus_used,
         )
         return {
             "question": question_to_data(result.question, StrategyOptions()),
@@ -384,7 +391,19 @@ def create_app(
                 for suggestion in result.exclusions
             ],
             # El modelo escribe en inglés: el aviso de DeCS no aplica a su borrador.
-            "check": {"results": [check_view(result.check, decs=True)]} if result.check else None,
+            "check": {
+                "results": [
+                    check_view(
+                        result.check,
+                        decs=True,
+                        source=describe_source(eric_thesaurus)
+                        if result.check.vocabulary == Vocabulary.ERIC
+                        else None,
+                    )
+                ]
+            }
+            if result.check
+            else None,
         }
 
     @app.post("/api/search", response_class=EventSourceResponse)
