@@ -9,6 +9,7 @@ from collections.abc import Sequence
 from contextlib import AbstractAsyncContextManager, AsyncExitStack
 from dataclasses import replace
 from pathlib import Path
+from typing import get_args
 
 from biblio_search import __version__
 from biblio_search.arxiv import ArxivClient, ArxivConfig
@@ -269,9 +270,11 @@ def _build_parser() -> argparse.ArgumentParser:
     screening.add_argument("screening_file", type=Path, help="screening file (SQLite)")
     screening.add_argument(
         "--which",
-        choices=["include", "maybe", "exclude", "pending", "all"],
+        choices=list(get_args(EntryFilter)),
         default="include",
-        help="records to export (default: include)",
+        help="records to export: by title and abstract, or full_text (waiting for it), "
+        "full_text_include (the studies of the review) and full_text_exclude "
+        "(default: include)",
     )
     screening.add_argument("--ris", type=Path, help="write the chosen records as RIS")
     screening.add_argument("--csv", type=Path, help="write the chosen records as CSV")
