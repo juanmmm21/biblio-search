@@ -61,7 +61,10 @@ University of Jaén) in *"Cómo aprender (y enseñar) a realizar búsquedas en C
 8. **Look for the best evidence first.** On a topic that is not new, Del Pino searches
    clinical practice guidelines first, then systematic reviews and only then original
    studies, following Haynes' pyramid. biblio-search counts the question in PubMed at each
-   level and can limit the equation to one of them by publication type.
+   level and can limit the equation to one of them by publication type. In other
+   disciplines the same idea works by kind of document: reviews for an overview of a field,
+   journal articles, preprints, theses or books, filtered in every database that tells
+   them apart.
 9. **Run it and read what the database understood.** biblio-search sends each database its
    own equation (PubMed through NCBI E-utilities, ERIC through its search API, arXiv through
    its Atom API, OpenAlex through its works API) and shows
@@ -225,6 +228,7 @@ biblio-search/
 │   ├── pipeline.py       # question -> equation -> search -> records, step by step
 │   ├── tuning.py         # condition and lever counts, Del Pino's sensitivity warnings
 │   ├── evidence.py       # Haynes' pyramid: counts per level of evidence and where to start
+│   ├── document_types.py # document types (reviews, articles, preprints...) each database can filter
 │   ├── merge.py          # union of several databases without duplicates (DOI or PMID)
 │   ├── search_log.py     # reproducible Markdown log of a search
 │   ├── export.py         # merged records as RIS and CSV
@@ -281,6 +285,9 @@ The page opens in your browser on a free port of `127.0.0.1` (`--port` to fix it
 - **Count the levels of evidence** in PubMed (guidelines, systematic reviews, original
   studies) and *Use* the one to start with; the *Level of evidence* selector limits the
   PubMed equation to it. See [Levels of evidence](#levels-of-evidence).
+- **Limit the document type** in any discipline: the *Document type* selector (reviews,
+  journal articles, preprints, theses, books) filters every database that can tell that
+  kind apart, and the notes name the ones that cannot. See [Document types](#document-types).
 - **Tune** the strategy: the count of every condition on its own and without it, and of
   every lever of the method moved one at a time, with Del Pino's warnings and an *Apply*
   button that loads the variant you prefer into the form.
@@ -307,6 +314,8 @@ The page opens in your browser on a free port of `127.0.0.1` (`--port` to fix it
 ![A physics question searched in arXiv and OpenAlex: the arXiv equation with its fields and categories, 115 records and the preprints with their arXiv DOIs](docs/screenshots/arxiv.png)
 
 ![Levels of evidence: the caregiver question counted in PubMed as guidelines, systematic reviews and original studies, with the advice to start with the guidelines and the systematic reviews level in use](docs/screenshots/evidence.png)
+
+![Document type set to reviews: the ERIC equation ends with its Information Analyses publication type and the OpenAlex one with a review type filter](docs/screenshots/document-types.png)
 
 ![Tuning: the count of each condition on its own and without it, and of each sensitivity or specificity lever, in PubMed and OpenAlex](docs/screenshots/tuning.png)
 
@@ -982,6 +991,37 @@ publication types, so they get every type of record and the equation notes say s
 upper levels of the pyramid (decision support systems and synopses) live in secondary
 resources rather than in bibliographic databases, so they are not counted.
 
+### Document types
+
+Outside health there is no pyramid, but the kind of document still decides where to start:
+a review gives the state of a field, journal articles the published research, preprints the
+newest work, theses and books the depth. `--document-type` (or `document_type` under
+`[options]`, or the *Document type* selector in the web interface) limits every database
+that can tell that kind apart:
+
+```console
+$ biblio-search build examples/peer-tutoring-reading.toml --dialect openalex --document-type review
+("peer teaching" OR "peer tutor*"~0 OR ...) AND (...) AND (...) FILTER type:review
+```
+
+- **OpenAlex** filters its work `type`: `article`, `review`, `preprint`, `dissertation`
+  for theses, and `book` or `book-chapter` for books. The filter is not part of OpenAlex's
+  search syntax, so it is written after the equation as `FILTER type:...` and sent as the
+  API's `filter` parameter; OpenAlex then reads it back as, for instance, *"get reviews
+  with ... in the title or abstract"*.
+- **ERIC** filters its publication types: `Journal Articles`, `Information Analyses` (its
+  type for reviews and syntheses), every `Dissertations/Theses` subtype and `Books`. ERIC
+  holds no preprints.
+- **PubMed** adds `Journal Article[pt]`, `Review[pt]` or `Preprint[pt]`; it has no type for
+  theses, and its books live in the NCBI Bookshelf. The type combines with the level of
+  evidence, which is the finer choice in health; the `evidence` ladder ignores it.
+- **arXiv** holds preprints only, so it needs no filter for them and cannot be limited to
+  anything else.
+
+A database that cannot tell the chosen kind apart gets every type of document and the
+equation notes say so. The equations for CINAHL, Scopus and Web of Science carry no
+document type: each has its own limiters for that.
+
 ### Question file reference
 
 - `question` (string) and `format` (`spc`, `pico` or `concepts`) are required.
@@ -1002,7 +1042,9 @@ resources rather than in bibliographic databases, so they are not counted.
 - `[options]`: `repeat_controlled_as_free` and `free_text_unindexed_only` (booleans). The
   command line flags can switch them on, never off. `evidence_level` (`guidelines`,
   `systematic_reviews` or `original_studies`) limits PubMed to one level of evidence;
-  `--evidence-level` replaces it.
+  `--evidence-level` replaces it. `document_type` (`article`, `review`, `preprint`,
+  `thesis` or `book`) limits every database that tells that kind apart;
+  `--document-type` replaces it.
 
 ## Programmatic use
 
