@@ -878,7 +878,7 @@ def test_preview_warns_that_the_level_only_filters_pubmed(client: TestClient) ->
     preview = client.post("/api/preview", json=data).json()
     pubmed, openalex = preview["equations"]
     assert pubmed["equation"].endswith(" AND systematic[sb]")
-    assert any("filters PubMed only" in note for note in openalex["notes"])
+    assert any("filters PubMed and CINAHL only" in note for note in openalex["notes"])
 
 
 class RecordedOllama:

@@ -59,7 +59,9 @@ def _options(document_type: DocumentType | None) -> StrategyOptions:
 def test_every_type_has_a_label_and_openalex_tells_them_all_apart() -> None:
     assert set(DOCUMENT_TYPE_LABELS) == set(DocumentType)
     assert SUPPORTED_TYPES[Database.OPENALEX.value] == frozenset(DocumentType)
-    assert set(SUPPORTED_TYPES) == {database.value for database in Database}
+    assert set(SUPPORTED_TYPES) == {database.value for database in Database} | {
+        target.value for target in ExportTarget
+    }
 
 
 @pytest.mark.parametrize(
@@ -206,18 +208,62 @@ def test_databases_that_cannot_tell_a_type_apart_say_so() -> None:
     assert document_type_note("pubmed", "PubMed", None) is None
 
 
-def test_exported_equations_leave_the_type_to_the_database() -> None:
+@pytest.mark.parametrize(
+    ("target", "document_type", "limit"),
+    [
+        (ExportTarget.CINAHL, DocumentType.ARTICLE, ' AND PT "Journal Article"'),
+        (ExportTarget.CINAHL, DocumentType.REVIEW, ' AND PT "Review"'),
+        (
+            ExportTarget.CINAHL,
+            DocumentType.THESIS,
+            ' AND (PT "Doctoral Dissertation" OR PT "Masters Thesis")',
+        ),
+        (ExportTarget.CINAHL, DocumentType.BOOK, ' AND (PT "Book" OR PT "Book Chapter")'),
+        (ExportTarget.SCOPUS, DocumentType.ARTICLE, " AND DOCTYPE(ar)"),
+        (ExportTarget.SCOPUS, DocumentType.REVIEW, " AND DOCTYPE(re)"),
+        (ExportTarget.SCOPUS, DocumentType.BOOK, " AND (DOCTYPE(bk) OR DOCTYPE(ch))"),
+        (ExportTarget.WEB_OF_SCIENCE, DocumentType.ARTICLE, " AND DT=(Article)"),
+        (ExportTarget.WEB_OF_SCIENCE, DocumentType.REVIEW, " AND DT=(Review)"),
+        (
+            ExportTarget.WEB_OF_SCIENCE,
+            DocumentType.BOOK,
+            " AND (DT=(Book) OR DT=(Book Chapter))",
+        ),
+    ],
+)
+def test_exported_equations_carry_the_document_type(
+    target: ExportTarget, document_type: DocumentType, limit: str
+) -> None:
     question, _ = load_question(HEALTH)
-    options = _options(DocumentType.REVIEW)
-    equation = EXPORT_DIALECTS[ExportTarget.SCOPUS].render(question, options)
-    assert "DOCTYPE" not in equation
-    assert "The Scopus equation has no document type: limit it to reviews in Scopus" in (
-        export_notes(question, ExportTarget.SCOPUS, options)
-    )
+    dialect = EXPORT_DIALECTS[target]
+    plain = dialect.render(question, StrategyOptions())
+    options = _options(document_type)
+    assert dialect.render(question, options) == f"({plain}){limit}"
     assert not any(
-        "document type" in note
-        for note in export_notes(question, ExportTarget.SCOPUS, StrategyOptions())
+        "document type" in n or "cannot be limited" in n
+        for n in (export_notes(question, target, options))
     )
+
+
+@pytest.mark.parametrize(
+    ("target", "document_type"),
+    [
+        (ExportTarget.CINAHL, DocumentType.PREPRINT),
+        (ExportTarget.SCOPUS, DocumentType.PREPRINT),
+        (ExportTarget.SCOPUS, DocumentType.THESIS),
+        (ExportTarget.WEB_OF_SCIENCE, DocumentType.PREPRINT),
+        (ExportTarget.WEB_OF_SCIENCE, DocumentType.THESIS),
+    ],
+)
+def test_exported_equations_warn_when_the_type_has_no_equivalent(
+    target: ExportTarget, document_type: DocumentType
+) -> None:
+    question, _ = load_question(HEALTH)
+    dialect = EXPORT_DIALECTS[target]
+    options = _options(document_type)
+    assert dialect.render(question, options) == dialect.render(question, StrategyOptions())
+    kind = DOCUMENT_TYPE_LABELS[document_type].lower()
+    assert any(f"cannot be limited to {kind}" in n for n in export_notes(question, target, options))
 
 
 def test_the_evidence_ladder_ignores_the_document_type() -> None:

@@ -13,7 +13,13 @@ from biblio_search.evidence import (
     evidence_ladder,
     recommend,
 )
-from biblio_search.models import Database, EvidenceLevel, ExportTarget, StrategyOptions
+from biblio_search.models import (
+    Database,
+    DocumentType,
+    EvidenceLevel,
+    ExportTarget,
+    StrategyOptions,
+)
 from biblio_search.pubmed_query import PubMedDialect, apply_evidence_level
 from biblio_search.question_file import load_question
 
@@ -48,14 +54,17 @@ def test_other_databases_ignore_the_level_and_say_so() -> None:
         dialect = DIALECTS[database]
         assert dialect.render(question, chosen) == dialect.render(question, StrategyOptions())
         notes = dialect_notes(question, dialect, chosen)
-        assert any("filters PubMed only" in note for note in notes)
+        assert any("filters PubMed and CINAHL only" in note for note in notes)
     pubmed = dialect_notes(question, DIALECTS[Database.PUBMED], chosen)
-    assert not any("filters PubMed only" in note for note in pubmed)
-    for target in ExportTarget:
-        assert "[pt]" not in EXPORT_DIALECTS[target].render(question, chosen)
-        assert any("filters PubMed only" in n for n in export_notes(question, target, chosen))
+    assert not any("filters PubMed" in note for note in pubmed)
+    for target in (ExportTarget.SCOPUS, ExportTarget.WEB_OF_SCIENCE):
+        dialect = EXPORT_DIALECTS[target]
+        assert dialect.render(question, chosen) == dialect.render(question, StrategyOptions())
+        assert any(
+            "filters PubMed and CINAHL only" in n for n in export_notes(question, target, chosen)
+        )
     assert not any(
-        "filters PubMed only" in n
+        "filters PubMed" in n
         for n in dialect_notes(question, DIALECTS[Database.OPENALEX], StrategyOptions())
     )
 
@@ -100,3 +109,37 @@ def test_evidence_ladder_counts_every_level_ignoring_the_chosen_one() -> None:
     assert backend.asked[0] == (plain, 0)
     assert all(retmax == 0 for _, retmax in backend.asked)
     assert len(backend.asked) == 4
+
+
+@pytest.mark.parametrize(
+    ("level", "limit"),
+    [
+        (EvidenceLevel.GUIDELINES, ' AND PT "Practice Guidelines"'),
+        (EvidenceLevel.SYSTEMATIC_REVIEWS, ' AND PT "Systematic Review"'),
+        (EvidenceLevel.ORIGINAL_STUDIES, ' AND PT "Research"'),
+    ],
+)
+def test_cinahl_limits_the_level_with_its_publication_types(
+    level: EvidenceLevel, limit: str
+) -> None:
+    question, _ = load_question(EXAMPLE)
+    cinahl = EXPORT_DIALECTS[ExportTarget.CINAHL]
+    chosen = StrategyOptions(evidence_level=level)
+    assert (
+        cinahl.render(question, chosen) == f"({cinahl.render(question, StrategyOptions())}){limit}"
+    )
+    assert not any(
+        "filters PubMed" in n for n in export_notes(question, ExportTarget.CINAHL, chosen)
+    )
+
+
+def test_cinahl_joins_level_and_document_type() -> None:
+    question, _ = load_question(EXAMPLE)
+    cinahl = EXPORT_DIALECTS[ExportTarget.CINAHL]
+    plain = cinahl.render(question, StrategyOptions())
+    both = StrategyOptions(
+        evidence_level=EvidenceLevel.SYSTEMATIC_REVIEWS, document_type=DocumentType.REVIEW
+    )
+    assert cinahl.render(question, both) == (
+        f'({plain}) AND PT "Systematic Review" AND PT "Review"'
+    )
