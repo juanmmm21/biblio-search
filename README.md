@@ -545,7 +545,17 @@ experiences or relationships, PICO for the effect of an intervention, free conce
 health) and then decomposes it into the components of that format, with English headings
 and free text. `--discipline` and `--format` keep your own choice instead. The draft is then
 checked against MeSH like any question: headings MeSH does not know are searched as free
-text. Without `--output` the question file is printed. In the web interface the
+text. Education questions get ERIC descriptors instead, checked against the ERIC Thesaurus
+(the API, or the file in `ERIC_THESAURUS`), so `Project-Based Learning`, which ERIC does not
+have, ends up as free text next to `Motivation` and `Secondary Education`, which it does.
+Questions in physics, mathematics, computer science or economics also get the arXiv
+categories where that research is posted; the model can only pick from arXiv's published
+taxonomy, and anything else is left out with a note:
+
+```console
+  arXiv categories: quant-ph, cs.IT, cs.LG
+```
+ Without `--output` the question file is printed. In the web interface the
 *Draft with local model* button does the same and loads the draft into the form.
 
 When the question rules something out ("no animal studies"), the model also proposes NOT
