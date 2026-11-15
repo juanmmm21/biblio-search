@@ -218,6 +218,7 @@ biblio-search/
 │   ├── openalex.py       # OpenAlex works client (search, summaries, references, citing works)
 │   ├── eric.py           # ERIC API client (Solr JSON, gateway retries) and response parsing
 │   ├── arxiv.py          # arXiv API client (Atom feeds, 3 s pace) and response parsing
+│   ├── arxiv_categories.py # arXiv's category taxonomy, to validate proposed categories
 │   ├── mesh.py           # MeSH lookups through E-utilities (db=mesh)
 │   ├── eric_thesaurus.py # ERIC descriptors through the API or the downloaded thesaurus
 │   ├── decs.py           # DeCS client and the Spanish-to-MeSH bridge (optional, licensed)
@@ -232,7 +233,7 @@ biblio-search/
 │   ├── merge.py          # union of several databases without duplicates (DOI or PMID)
 │   ├── search_log.py     # reproducible Markdown log of a search
 │   ├── export.py         # merged records as RIS and CSV
-│   ├── screening.py      # SQLite screening project: decisions, reasons and flow counts
+│   ├── screening.py      # SQLite screening project: two stages, reasons and flow counts
 │   ├── snowball.py       # references and citations of the included records via OpenAlex
 │   ├── web/
 │   │   ├── app.py        # FastAPI app: preview, check, evidence levels, SSE search, tuning, screening, snowballing
