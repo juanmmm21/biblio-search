@@ -13,11 +13,19 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from biblio_search import __version__
-from biblio_search.catalog import DATABASE_LABELS, DIALECTS, dialect_notes
+from biblio_search.catalog import (
+    DATABASE_LABELS,
+    DIALECTS,
+    EXPORT_DIALECTS,
+    EXPORT_LABELS,
+    dialect_notes,
+    export_notes,
+    export_reasons,
+)
 from biblio_search.document_types import DOCUMENT_TYPE_LABELS
 from biblio_search.evidence import EVIDENCE_LABELS
 from biblio_search.merge import MergedResults, merge_records
-from biblio_search.models import Database, StrategyOptions, StructuredQuestion
+from biblio_search.models import Database, ExportTarget, StrategyOptions, StructuredQuestion
 from biblio_search.pipeline import SearchReport
 from biblio_search.question_file import dump_question
 from biblio_search.selection import DatabaseSelection, SelectionMode
@@ -35,6 +43,31 @@ class DatabaseRun:
 
 
 @dataclass(frozen=True, slots=True)
+class ExportedEquation:
+    """The equation for a subscription database, which is pasted there and never searched."""
+
+    target: ExportTarget
+    equation: str
+    reasons: tuple[str, ...] = ()
+    notes: tuple[str, ...] = ()
+
+
+def exported_equations(
+    question: StructuredQuestion, options: StrategyOptions
+) -> tuple[ExportedEquation, ...]:
+    """The subscription equations worth keeping next to the searched ones."""
+    return tuple(
+        ExportedEquation(
+            target,
+            EXPORT_DIALECTS[target].render(question, options),
+            reasons,
+            export_notes(question, target, options),
+        )
+        for target, reasons in export_reasons(question).items()
+    )
+
+
+@dataclass(frozen=True, slots=True)
 class SearchLog:
     """One run of a question in every chosen database, with its merged records."""
 
@@ -45,6 +78,7 @@ class SearchLog:
     runs: tuple[DatabaseRun, ...]
     max_records: int
     merged: MergedResults
+    exports: tuple[ExportedEquation, ...] = ()
     version: str = __version__
 
     def __post_init__(self) -> None:
@@ -86,6 +120,7 @@ def build_log(
         runs=runs,
         max_records=max_records,
         merged=merge_records([(run.database, run.report.records) for run in runs]),
+        exports=exported_equations(question, options),
     )
 
 
@@ -133,6 +168,16 @@ def _run_lines(run: DatabaseRun) -> list[str]:
     remarks += [f"- Note: {note}" for note in run.notes]
     if remarks:
         lines += ["", *remarks]
+    return lines
+
+
+def _export_lines(export: ExportedEquation) -> list[str]:
+    lines = [f"### {EXPORT_LABELS[export.target]}", ""]
+    if export.reasons:
+        lines += [f"Why: {'; '.join(export.reasons)}.", ""]
+    lines.append(_fence(export.equation))
+    if export.notes:
+        lines += ["", *(f"- Note: {note}" for note in export.notes)]
     return lines
 
 
@@ -184,6 +229,17 @@ def render_log(log: SearchLog) -> str:
         f"- Duplicates removed (same DOI or PMID): {merged.duplicates:,}",
         f"- Unique records: {len(merged.records):,}",
         "",
+    ]
+    if log.exports:
+        lines += [
+            "## Subscription databases",
+            "",
+            "Not searched by biblio-search: paste each equation into the database.",
+        ]
+        for export in log.exports:
+            lines += ["", *_export_lines(export)]
+        lines.append("")
+    lines += [
         "## Repeat this search",
         "",
         f"Save the question below as `{QUESTION_FILE_NAME}` and run:",
