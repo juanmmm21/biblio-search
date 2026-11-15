@@ -63,6 +63,7 @@ from biblio_search.pipeline import (
 )
 from biblio_search.protocols import Thesaurus
 from biblio_search.question_file import (
+    condition_data,
     dump_question,
     parse_question,
     parse_question_text,
@@ -378,6 +379,10 @@ def create_app(
             "english": result.english,
             "model": result.model,
             "notes": list(result.notes),
+            "exclusions": [
+                {"reason": suggestion.reason, "condition": condition_data(suggestion.condition)}
+                for suggestion in result.exclusions
+            ],
             # El modelo escribe en inglés: el aviso de DeCS no aplica a su borrador.
             "check": {"results": [check_view(result.check, decs=True)]} if result.check else None,
         }

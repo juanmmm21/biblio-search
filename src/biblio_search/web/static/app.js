@@ -1430,6 +1430,7 @@ async function runDraft() {
     setDraftStatus(`Drafted by ${result.model}: review every term before searching.`);
     if (result.english) notes.append(el("li", null, `In English: ${result.english}`));
     for (const note of result.notes) notes.append(el("li", null, note));
+    for (const suggestion of result.exclusions) notes.append(suggestedExclusion(suggestion));
     notes.hidden = !notes.children.length;
     if (result.check) {
       lastCheck = { ...result.check, fixed: result.question };
@@ -1443,6 +1444,27 @@ async function runDraft() {
     button.disabled = false;
     button.textContent = "Draft with local model";
   }
+}
+
+// Una exclusión que propone el modelo: no entra en la pregunta hasta que el usuario la acepta.
+function suggestedExclusion(suggestion) {
+  const item = el("li", "suggested-exclusion");
+  const terms = [...(suggestion.condition.controlled || []).map((t) => (typeof t === "string" ? t : t.term)), ...(suggestion.condition.free || [])];
+  item.append(
+    el("strong", null, `Exclude ${suggestion.condition.label}? `),
+    document.createTextNode(`${suggestion.reason}. NOT ${terms.join(" OR ")} `),
+  );
+  const add = el("button", "button small", "Add as NOT");
+  add.type = "button";
+  add.addEventListener("click", () => {
+    state.exclusions.push(conditionFromData(suggestion.condition));
+    renderForm();
+    schedulePreview();
+    add.disabled = true;
+    add.textContent = "Added";
+  });
+  item.append(add);
+  return item;
 }
 
 // --- Importar y exportar ---
