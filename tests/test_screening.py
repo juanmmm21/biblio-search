@@ -15,8 +15,10 @@ from biblio_search.screening import (
     MAX_REASON_LENGTH,
     NO_REASON,
     Decision,
+    LinkRelation,
     ScreeningError,
     ScreeningStore,
+    SnowballLink,
     merged_entries,
     render_flow,
 )
@@ -246,7 +248,8 @@ def test_a_version_1_file_is_upgraded(tmp_path: Path) -> None:
     # Se deja el fichero como lo escribía la versión 0.13.0.
     with sqlite3.connect(path) as connection:
         connection.executescript(
-            "DROP TABLE snowballed; ALTER TABLE searches DROP COLUMN kind; PRAGMA user_version = 1;"
+            "DROP TABLE snowball_links; DROP TABLE snowballed;"
+            " ALTER TABLE searches DROP COLUMN kind; PRAGMA user_version = 1;"
         )
     connection.close()
     with ScreeningStore.open(path) as store:
@@ -255,5 +258,60 @@ def test_a_version_1_file_is_upgraded(tmp_path: Path) -> None:
         store.add_snowball(_round([entry.entry_id], [_record("W5")]))
         assert store.summary().snowball_rounds == 1
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 3
     connection.close()
+
+
+def test_a_version_2_file_is_upgraded(tmp_path: Path) -> None:
+    path = tmp_path / "old.sqlite"
+    with ScreeningStore.open(path) as store:
+        store.add_search(_log([_record("1")]))
+        (entry,) = store.entries()
+        store.decide(entry.entry_id, Decision.INCLUDE)
+    # Se deja el fichero como lo escribía la versión 0.18.0.
+    with sqlite3.connect(path) as connection:
+        connection.executescript("DROP TABLE snowball_links; PRAGMA user_version = 2;")
+    connection.close()
+    with ScreeningStore.open(path) as store:
+        assert store.entries()[0].found_via == ()
+        store.add_snowball(_round([entry.entry_id], [_record("W5")]))
+        candidate = store.entries()[1]
+        assert candidate.found_via == (
+            SnowballLink(entry.entry_id, "A study", LinkRelation.CITED_BY),
+        )
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 3
+    connection.close()
+
+
+def test_snowballing_remembers_where_each_candidate_came_from(store: ScreeningStore) -> None:
+    store.add_search(
+        _log([_record("1", title="Seed one"), _record("2", doi="10.1/b", title="Seed two")])
+    )
+    first, second = store.entries()
+    run = SnowballRun(
+        run_at=WHEN,
+        directions=(SnowballDirection.REFERENCES, SnowballDirection.CITATIONS),
+        max_citing=100,
+        seeds=(),
+        unmatched=(),
+        candidates=(
+            Candidate(_record("W7"), cited_by=(first.entry_id,), cites=(second.entry_id,)),
+            Candidate(_record("W8"), cites=(first.entry_id,)),
+            # Un candidato que resulta ser el propio registro de partida no se enlaza consigo.
+            Candidate(_record("W9", doi="10.1/b"), cited_by=(second.entry_id,)),
+        ),
+    )
+    store.add_snowball(run)
+    entries = store.entries()
+    assert len(entries) == 4
+    by_id = {e.record.record_id: e for e in entries}
+    assert by_id["W7"].found_via == (
+        SnowballLink(first.entry_id, "Seed one", LinkRelation.CITED_BY),
+        SnowballLink(second.entry_id, "Seed two", LinkRelation.CITES),
+    )
+    assert by_id["W8"].found_via == (SnowballLink(first.entry_id, "Seed one", LinkRelation.CITES),)
+    assert by_id["1"].found_via == () and by_id["2"].found_via == ()
+    # Una segunda ronda que vuelve a llegar al mismo candidato no repite el enlace.
+    store.add_snowball(run)
+    assert len(store.entry(by_id["W7"].entry_id).found_via) == 2

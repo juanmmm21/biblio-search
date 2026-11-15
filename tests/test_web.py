@@ -585,6 +585,11 @@ def test_snowballing_adds_a_round_to_the_screening(tmp_path: Path) -> None:
     assert body["run"]["unmatched"] == [] and body["run"]["candidates"] == 3
     assert body["flow"]["snowball_rounds"] == 1 and body["flow"]["citation_identified"] == 3
     assert after["to_snowball"] == 0 and after["flow"]["pending"] == 3
+    candidates = [e for e in after["entries"] if e["id"] != seed.entry_id]
+    assert candidates and all(
+        e["found_via"] == [{"seed_id": seed.entry_id, "seed_title": "A study", "relation": "cites"}]
+        for e in candidates
+    )
     assert [r.url.params["filter"].split(":")[0] for r in seen] == ["doi", "cites"]
     assert "# Snowballing log" in logs.text
 
