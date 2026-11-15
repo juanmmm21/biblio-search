@@ -302,6 +302,9 @@ The page opens in your browser on a free port of `127.0.0.1` (`--port` to fix it
   duplicates removed, screened, pending, maybe, excluded by reason and included, and the
   included records download as RIS or CSV. Included and maybe records then get a full-text
   decision, where excluding needs a reason, and the diagram adds the full-text stage.
+  Screening runs from the keyboard too: `J`/`K` move between records, `I`, `M` and `E`
+  decide, `U` undoes, `R` jumps to the reason, `Shift`+`I`/`E` decide the full text and `O`
+  opens the record; the keys are listed above the records.
 - **Snowball** from the included records: the *Snowballing* box adds their references and
   the works citing them, found through OpenAlex, as new records to screen. Each candidate
   says which included record it came from and how: in its references, or citing it.
