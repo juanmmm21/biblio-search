@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from types import TracebackType
 from typing import Protocol, Self
 
@@ -216,6 +216,18 @@ _COMPONENT_SCHEMA: Mapping[str, object] = {
 }
 
 
+_EXCLUSION_SCHEMA: Mapping[str, object] = {
+    "type": "object",
+    "properties": {
+        "label": {"type": "string"},
+        "reason": {"type": "string"},
+        "mesh": {"type": "array", "items": {"type": "string"}},
+        "free": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    },
+    "required": ["label", "reason", "mesh", "free"],
+}
+
+
 def draft_schema(question_format: QuestionFormat) -> Mapping[str, object]:
     """JSON schema of the decomposition, with one fixed key per component of the format.
 
@@ -228,10 +240,16 @@ def draft_schema(question_format: QuestionFormat) -> Mapping[str, object]:
         }
     else:
         components = {role.value: _COMPONENT_SCHEMA for role in FORMAT_ROLES[question_format]}
+    # Las exclusiones van al final y obligatorias (vacías casi siempre): un campo opcional,
+    # los modelos pequeños lo ignoran siempre.
     return {
         "type": "object",
-        "properties": {"english": {"type": "string"}, **components},
-        "required": ["english", *components],
+        "properties": {
+            "english": {"type": "string"},
+            **components,
+            "exclusions": {"type": "array", "items": _EXCLUSION_SCHEMA},
+        },
+        "required": ["english", *components, "exclusions"],
     }
 
 
@@ -306,7 +324,14 @@ conditions.
 - "free": 2 to 5 English words or short phrases authors write in titles and abstracts: \
 synonyms, variants, and roots with a trailing * for word families (caregiv*, depress*, \
 fall*). One * at most, at the end; never quotes, brackets or AND/OR/NOT.
-- "english": the whole question rewritten in English in one sentence."""
+- "english": the whole question rewritten in English in one sentence.
+Rules for "exclusions" (records to leave out with NOT); it is usually an empty list:
+- Propose one only when the question clearly rules something out that the search would \
+otherwise bring, e.g. animal studies when it asks about people, or a population it \
+explicitly does not want. Never exclude what is merely not mentioned.
+- Each has a "label", a one-sentence "reason" and terms that name what is excluded, with \
+the same rules as conditions (e.g. label "animal studies", mesh ["Animals"], free \
+["rat*", "mice", "mouse"]). Keep it narrow: NOT also drops records that mention both."""
 
 
 def draft_prompt(question_format: QuestionFormat, *, use_mesh: bool) -> str:
@@ -315,6 +340,14 @@ def draft_prompt(question_format: QuestionFormat, *, use_mesh: bool) -> str:
 
 
 # --- Del JSON del modelo a una pregunta estructurada ---
+
+
+@dataclass(frozen=True, slots=True)
+class SuggestedExclusion:
+    """A NOT condition the model proposes, with why; the user decides whether to add it."""
+
+    condition: Condition
+    reason: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -330,6 +363,7 @@ class Draft:
     model: str
     notes: tuple[str, ...] = ()
     check: QuestionCheck | None = None
+    exclusions: tuple[SuggestedExclusion, ...] = ()
 
 
 def _text(value: object) -> str:
@@ -458,6 +492,35 @@ def parse_draft(
     return question, _text(payload.get("english")), tuple(dict.fromkeys(notes))
 
 
+def parse_exclusions(
+    payload: Mapping[str, object], question: StructuredQuestion, notes: list[str]
+) -> tuple[SuggestedExclusion, ...]:
+    """The exclusions the model proposed, as suggestions kept apart from ``question``.
+
+    Labels never repeat one of the question's conditions, and an exclusion without terms or
+    without a reason is left out: a NOT with no stated reason is not worth proposing.
+    """
+    use_mesh = question.discipline is Discipline.HEALTH
+    labels = {c.label.casefold() for c in question.conditions}
+    raw_items = payload.get("exclusions")
+    suggestions: list[SuggestedExclusion] = []
+    for raw in raw_items if isinstance(raw_items, list) else []:
+        if not isinstance(raw, Mapping):
+            continue
+        terms = _terms(raw, use_mesh=use_mesh, notes=notes)
+        reason = _text(raw.get("reason"))
+        if not terms or not reason:
+            continue
+        base = _text(raw.get("label")) or terms[-1].text
+        label, number = base, 2
+        while label.casefold() in labels:
+            label = f"{base} ({number})"
+            number += 1
+        labels.add(label.casefold())
+        suggestions.append(SuggestedExclusion(Condition(label=label, terms=tuple(terms)), reason))
+    return tuple(suggestions)
+
+
 async def draft_question(
     text: str,
     model: LanguageModel,
@@ -487,11 +550,27 @@ async def draft_question(
     payload = await model.complete_json(
         draft_prompt(question_format, use_mesh=use_mesh), cleaned, draft_schema(question_format)
     )
-    question, english, notes = parse_draft(payload, cleaned, question_format, discipline)
+    question, english, draft_notes = parse_draft(payload, cleaned, question_format, discipline)
+    notes = list(draft_notes)
+    exclusions = parse_exclusions(payload, question, notes)
+    # Los descriptores de las exclusiones se comprueban con los de la pregunta, en la misma
+    # consulta, y luego vuelven a quedar aparte como sugerencias.
+    probe = replace(question, exclusions=tuple(e.condition for e in exclusions))
     check: QuestionCheck | None = None
     if thesaurus is not None and any(
-        t.vocabulary is Vocabulary.MESH for t in question.controlled_terms
+        t.vocabulary is Vocabulary.MESH for t in probe.controlled_terms
     ):
-        check = await check_question(question, thesaurus)
-        question = apply_check(question, check)
-    return Draft(question, english, model.model, notes, check)
+        check = await check_question(probe, thesaurus)
+        probe = apply_check(probe, check)
+    exclusions = tuple(
+        SuggestedExclusion(condition, suggestion.reason)
+        for suggestion, condition in zip(exclusions, probe.exclusions, strict=True)
+    )
+    return Draft(
+        replace(probe, exclusions=()),
+        english,
+        model.model,
+        tuple(dict.fromkeys(notes)),
+        check,
+        exclusions,
+    )
