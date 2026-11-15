@@ -238,6 +238,7 @@ def test_search_physics_question_in_arxiv(
     assert "Results: 115" in out
     assert "  1. arXiv 2304.07362 (2023) The END: An Equivariant Neural Decoder" in out
     assert "| Nature 635, 834-840 (2024) [article]" in out
+    assert "Note: arXiv takes no wildcard inside a phrase" in out
     # Los registros llegan con la búsqueda: arXiv recibe una sola petición.
     assert len(seen) == 1
 
@@ -272,6 +273,7 @@ def test_search_prints_report(
     assert "[Journal Article, Review]" in pubmed
     assert openalex.startswith("Equation: (anxiety OR depress*) AND")
     assert "OpenAlex understood: get works with" in openalex
+    assert "\nNote: " in openalex and "\nNote: " not in pubmed
     assert "Results: 2516" in openalex
     assert "  1. OpenAlex W2145256182 (2010) Associations between drug burden" in openalex
     assert "| Age and Ageing [article]" in openalex
@@ -297,6 +299,7 @@ def test_search_writes_log_ris_and_csv(
     assert f"Log written to {log}" in out and f"CSV written to {csv}" in out
     text = log.read_text(encoding="utf-8")
     assert text.startswith("# Search log") and "--database pubmed --database openalex" in text
+    assert "## Subscription databases" in text and "### CINAHL" in text
     assert ris.read_bytes().count(b"ER  - \r\n") == 6
     assert csv.read_bytes().startswith(b"\xef\xbb\xbftitle,authors")
 

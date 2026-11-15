@@ -147,3 +147,25 @@ def test_fence_outgrows_backticks_in_the_equation() -> None:
         question, options, selection, [(Database.PUBMED, report)], max_records=0, searched_at=WHEN
     )
     assert "````\na ``` b\n````" in render_log(log)
+
+
+def test_log_keeps_the_subscription_equations() -> None:
+    log = _log()
+    assert [e.target.value for e in log.exports] == ["cinahl", "scopus", "wos"]
+    cinahl = log.exports[0]
+    assert cinahl.equation.startswith("(") and "MH " in cinahl.equation
+    assert "nursing and allied health database" in cinahl.reasons
+    text = render_log(log)
+    section = text.split("## Subscription databases\n", 1)[1].split("## Repeat this search", 1)[0]
+    assert "### CINAHL" in section and "### Scopus" in section and "### Web of Science" in section
+    for export in log.exports:
+        assert export.equation in section
+    assert section.index("### CINAHL") < section.index("### Scopus")
+
+
+def test_log_without_health_offers_no_cinahl() -> None:
+    question, _ = load_question(EXAMPLE.with_name("neural-decoders-qec.toml"))
+    selection = select_databases(question, SEARCHABLE)
+    log = build_log(question, StrategyOptions(), selection, [], max_records=1, searched_at=WHEN)
+    assert [e.target.value for e in log.exports] == ["scopus", "wos"]
+    assert "### CINAHL" not in render_log(log)
