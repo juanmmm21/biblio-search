@@ -799,8 +799,10 @@ CSV written to records.csv
 - **The log** (`--log`, Markdown) records the date in UTC, the biblio-search version, the
   question and its options, the databases with the reasons they were chosen, and for each
   one the equation, how the database understood it, the records found and retrieved, and
-  any term it did not recognise. It ends with the number of duplicates removed and the
-  question as TOML with the command that repeats the search, ready for a methods section.
+  any term it did not recognise, plus the notes on how that database reads the equation.
+  It also keeps the equations for the subscription databases (CINAHL, Scopus, Web of
+  Science) that you paste there yourself, so the whole strategy lives in one file. It ends
+  with the number of duplicates removed and the question as TOML with the command that repeats the search, ready for a methods section.
 - **RIS** (`--ris`) imports into Zotero, Mendeley or EndNote. A work found in both PubMed
   and OpenAlex appears once, with both databases and both ids in its note.
 - **CSV** (`--csv`) has one row per work: title, authors, journal, year, DOI, PMID, the
