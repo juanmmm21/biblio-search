@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 
 from biblio_search import __version__
 from biblio_search.catalog import DATABASE_LABELS, DIALECTS, dialect_notes
+from biblio_search.document_types import DOCUMENT_TYPE_LABELS
 from biblio_search.evidence import EVIDENCE_LABELS
 from biblio_search.merge import MergedResults, merge_records
 from biblio_search.models import Database, StrategyOptions, StructuredQuestion
@@ -55,6 +56,12 @@ def _evidence_level(options: StrategyOptions) -> str:
     if options.evidence_level is None:
         return "every type of record"
     return f"{EVIDENCE_LABELS[options.evidence_level].lower()} (PubMed publication types)"
+
+
+def _document_type(options: StrategyOptions) -> str:
+    if options.document_type is None:
+        return "every type of document"
+    return DOCUMENT_TYPE_LABELS[options.document_type].lower()
 
 
 def build_log(
@@ -148,6 +155,7 @@ def render_log(log: SearchLog) -> str:
         f"- Free text limited to records outside MEDLINE: "
         f"{_yes_no(log.options.free_text_unindexed_only)}",
         f"- Level of evidence: {_evidence_level(log.options)}",
+        f"- Document type: {_document_type(log.options)}",
         "",
         "## Databases",
         "",

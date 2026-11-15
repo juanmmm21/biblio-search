@@ -15,6 +15,7 @@ from biblio_search.models import (
     ControlledScope,
     Database,
     Discipline,
+    DocumentType,
     EvidenceLevel,
     FreeTextField,
     QuestionError,
@@ -121,7 +122,12 @@ def _component(value: object, where: str, question_format: QuestionFormat) -> Co
 
 def _options(value: object) -> StrategyOptions:
     table = _table(value, "options")
-    known = {"repeat_controlled_as_free", "free_text_unindexed_only", "evidence_level"}
+    known = {
+        "repeat_controlled_as_free",
+        "free_text_unindexed_only",
+        "evidence_level",
+        "document_type",
+    }
     unknown = sorted(set(table) - known)
     if unknown:
         raise QuestionError(f"unknown options: {', '.join(unknown)}")
@@ -136,6 +142,11 @@ def _options(value: object) -> StrategyOptions:
             None
             if "evidence_level" not in table
             else _choice(EvidenceLevel, table["evidence_level"], "options.evidence_level")
+        ),
+        document_type=(
+            None
+            if "document_type" not in table
+            else _choice(DocumentType, table["document_type"], "options.document_type")
         ),
     )
 
@@ -236,6 +247,7 @@ def question_to_data(question: StructuredQuestion, options: StrategyOptions) -> 
         "repeat_controlled_as_free": options.repeat_controlled_as_free,
         "free_text_unindexed_only": options.free_text_unindexed_only,
         "evidence_level": options.evidence_level.value if options.evidence_level else None,
+        "document_type": options.document_type.value if options.document_type else None,
     }
     if any(chosen.values()):
         data["options"] = {key: value for key, value in chosen.items() if value}

@@ -63,6 +63,7 @@ from biblio_search.models import (
     Database,
     DatabaseError,
     Discipline,
+    DocumentType,
     EvidenceLevel,
     ExportTarget,
     QuestionError,
@@ -138,6 +139,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--evidence-level",
         choices=[level.value for level in EVIDENCE_LADDER],
         help="limit PubMed to one level of evidence by publication type; overrides the file",
+    )
+    question.add_argument(
+        "--document-type",
+        choices=[document_type.value for document_type in DocumentType],
+        help="limit every database that tells it apart to one type of document; overrides the file",
     )
 
     choose = argparse.ArgumentParser(add_help=False)
@@ -352,6 +358,11 @@ def _merge_options(file_options: StrategyOptions, args: argparse.Namespace) -> S
             file_options.evidence_level
             if args.evidence_level is None
             else EvidenceLevel(args.evidence_level)
+        ),
+        document_type=(
+            file_options.document_type
+            if args.document_type is None
+            else DocumentType(args.document_type)
         ),
     )
 
