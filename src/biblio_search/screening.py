@@ -26,7 +26,7 @@ from biblio_search.question_file import dump_question
 from biblio_search.search_log import SearchLog, render_log
 from biblio_search.snowball import SnowballRun, render_snowball
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 DEFAULT_SCREENING_FILE = "screening.sqlite"
 MAX_REASON_LENGTH = 500
 NO_REASON = "no reason given"
@@ -77,6 +77,13 @@ CREATE TABLE snowballed (
     record INTEGER PRIMARY KEY REFERENCES records(id),
     search INTEGER NOT NULL REFERENCES searches(id)
 );
+CREATE TABLE snowball_links (
+    record INTEGER NOT NULL REFERENCES records(id),
+    seed INTEGER NOT NULL REFERENCES records(id),
+    relation TEXT NOT NULL CHECK (relation IN ('cited_by', 'cites')),
+    search INTEGER NOT NULL REFERENCES searches(id),
+    PRIMARY KEY (record, seed, relation)
+);
 """
 # La versión 1 no distinguía búsquedas de rondas de bola de nieve ni guardaba de qué
 # registros se partió: todo lo que tenía era una búsqueda.
@@ -86,6 +93,17 @@ ALTER TABLE searches ADD COLUMN kind TEXT NOT NULL DEFAULT 'search'
 CREATE TABLE snowballed (
     record INTEGER PRIMARY KEY REFERENCES records(id),
     search INTEGER NOT NULL REFERENCES searches(id)
+);
+"""
+# La versión 2 no guardaba de qué incluido salía cada candidato de la bola de nieve: los
+# candidatos ya añadidos se quedan sin origen.
+_MIGRATE_FROM_2 = """
+CREATE TABLE snowball_links (
+    record INTEGER NOT NULL REFERENCES records(id),
+    seed INTEGER NOT NULL REFERENCES records(id),
+    relation TEXT NOT NULL CHECK (relation IN ('cited_by', 'cites')),
+    search INTEGER NOT NULL REFERENCES searches(id),
+    PRIMARY KEY (record, seed, relation)
 );
 """
 
@@ -102,6 +120,26 @@ class Decision(StrEnum):
     MAYBE = "maybe"
 
 
+class LinkRelation(StrEnum):
+    """How a snowballing candidate is linked to the included record it was reached from."""
+
+    CITED_BY = "cited_by"
+    CITES = "cites"
+
+
+@dataclass(frozen=True, slots=True)
+class SnowballLink:
+    """An included record that led snowballing to a candidate.
+
+    ``CITED_BY`` means the candidate is in the seed's references; ``CITES``, that the
+    candidate cites the seed.
+    """
+
+    seed_id: int
+    seed_title: str
+    relation: LinkRelation
+
+
 @dataclass(frozen=True, slots=True)
 class ScreeningEntry:
     """One record of the project, where it was found and what was decided about it."""
@@ -112,6 +150,7 @@ class ScreeningEntry:
     decision: Decision | None = None
     reason: str = ""
     decided_at: datetime | None = None
+    found_via: tuple[SnowballLink, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -192,11 +231,12 @@ class ScreeningStore:
                 with connection:
                     connection.executescript(_SCHEMA)
                     connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
-            elif version == 1:
+            elif version in (1, 2):
+                steps = (_MIGRATE_FROM_1 if version == 1 else "") + _MIGRATE_FROM_2
                 # executescript confirma lo pendiente antes de empezar: se abre la
                 # transacción dentro del guion para que la migración sea todo o nada.
                 connection.executescript(
-                    f"BEGIN; {_MIGRATE_FROM_1} PRAGMA user_version = {SCHEMA_VERSION}; COMMIT;"
+                    f"BEGIN; {steps} PRAGMA user_version = {SCHEMA_VERSION}; COMMIT;"
                 )
             elif version != SCHEMA_VERSION:
                 raise ScreeningError(f"{path} is not a biblio-search screening file")
@@ -241,7 +281,7 @@ class ScreeningStore:
         record links them: each may carry a decision, and the reviewer must not lose one.
         """
         with self._transaction() as db:
-            _, added = self._add_round(
+            _, added, _ = self._add_round(
                 db,
                 kind="search",
                 when=log.searched_at,
@@ -258,7 +298,7 @@ class ScreeningStore:
         ``search_number`` counts snowballing rounds, apart from searches.
         """
         with self._transaction() as db:
-            search, added = self._add_round(
+            search, added, entries = self._add_round(
                 db,
                 kind="snowball",
                 when=run.run_at,
@@ -270,6 +310,22 @@ class ScreeningStore:
             db.executemany(
                 "INSERT OR REPLACE INTO snowballed (record, search) VALUES (?, ?)",
                 [(seed.entry_id, search) for seed in run.seeds],
+            )
+            # Los candidatos van en el mismo orden que run.merged.records.
+            links = [
+                (entry, seed, relation.value, search)
+                for entry, candidate in zip(entries, run.candidates, strict=True)
+                for relation, seeds in (
+                    (LinkRelation.CITED_BY, candidate.cited_by),
+                    (LinkRelation.CITES, candidate.cites),
+                )
+                for seed in seeds
+                if seed != entry
+            ]
+            db.executemany(
+                "INSERT OR IGNORE INTO snowball_links (record, seed, relation, search)"
+                " VALUES (?, ?, ?, ?)",
+                links,
             )
         return added
 
@@ -283,7 +339,8 @@ class ScreeningStore:
         question_toml: str,
         rendered: str,
         merged: MergedResults,
-    ) -> tuple[int, AddedSearch]:
+    ) -> tuple[int, AddedSearch, list[int]]:
+        """Write a round and its records; also returns the entry of each merged record."""
         cursor = db.execute(
             "INSERT INTO searches (searched_at, added_at, question, question_toml, log,"
             " identified, new_records, kind) VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
@@ -300,12 +357,16 @@ class ScreeningStore:
         search = cursor.lastrowid
         if search is None:
             raise ScreeningError(f"cannot write {self.path}: the search got no id")
-        new_records = sum(self._add_record(db, search, record) for record in merged.records)
+        added = [self._add_record(db, search, record) for record in merged.records]
+        new_records = sum(is_new for _, is_new in added)
         db.execute("UPDATE searches SET new_records = ? WHERE id = ?", (new_records, search))
         number = db.execute("SELECT count(*) FROM searches WHERE kind = ?", (kind,)).fetchone()[0]
-        return search, AddedSearch(number, merged.identified, new_records)
+        entries = [entry for entry, _ in added]
+        return search, AddedSearch(number, merged.identified, new_records), entries
 
-    def _add_record(self, db: sqlite3.Connection, search: int, merged: MergedRecord) -> bool:
+    def _add_record(
+        self, db: sqlite3.Connection, search: int, merged: MergedRecord
+    ) -> tuple[int, bool]:
         record = merged.record
         keys = [*identity_keys(record), *(_source_key(s) for s in merged.sources)]
         placeholders = ", ".join("?" for _ in keys)
@@ -345,7 +406,7 @@ class ScreeningStore:
             "INSERT OR IGNORE INTO sources (record, database, record_id, url) VALUES (?, ?, ?, ?)",
             [(entry, s.database.value, s.record_id, s.url) for s in merged.sources],
         )
-        return found is None
+        return entry, found is None
 
     def decide(self, entry_id: int, decision: Decision, reason: str = "") -> ScreeningEntry:
         """Record (or change) the decision about a record, with an optional reason."""
@@ -410,10 +471,25 @@ class ScreeningStore:
                 sources.setdefault(record, []).append(
                     RecordSource(Database(database), record_id, url)
                 )
-        return tuple(self._entry(row, sources.get(row[0], [])) for row in rows)
+        links: dict[int, list[SnowballLink]] = {}
+        with closing(
+            self._db.execute(
+                "SELECT l.record, l.seed, s.title, l.relation FROM snowball_links l"
+                " JOIN records s ON s.id = l.seed ORDER BY l.record, l.seed, l.relation"
+            )
+        ) as cursor:
+            for record, seed, title, relation in cursor:
+                links.setdefault(record, []).append(
+                    SnowballLink(int(seed), str(title), LinkRelation(relation))
+                )
+        return tuple(
+            self._entry(row, sources.get(row[0], []), links.get(row[0], [])) for row in rows
+        )
 
     @staticmethod
-    def _entry(row: tuple[object, ...], sources: list[RecordSource]) -> ScreeningEntry:
+    def _entry(
+        row: tuple[object, ...], sources: list[RecordSource], links: list[SnowballLink]
+    ) -> ScreeningEntry:
         entry_id, title, authors, journal, year, doi, pmid, types, decision, reason, at = row
         first = sources[0] if sources else None
         record = ArticleSummary(
@@ -434,6 +510,7 @@ class ScreeningStore:
             decision=Decision(str(decision)) if decision is not None else None,
             reason=str(reason) if reason is not None else "",
             decided_at=datetime.fromisoformat(str(at)) if at is not None else None,
+            found_via=tuple(links),
         )
 
     def summary(self) -> FlowSummary:
