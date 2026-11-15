@@ -26,7 +26,7 @@ from biblio_search.pipeline import SearchBackend
 from biblio_search.pubmed_query import PubMedDialect, apply_evidence_level
 from biblio_search.question_file import load_question
 from biblio_search.ratelimit import RateLimiter
-from biblio_search.screening import Decision, ScreeningStore
+from biblio_search.screening import Decision, FullTextDecision, ScreeningStore
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 EXAMPLE = EXAMPLES / "caregiver-burden.toml"
@@ -339,6 +339,17 @@ def test_search_adds_to_a_screening_and_screening_exports(
     assert "    not caregivers: 1" in out and f"RIS (include) written to {ris}" in out
     assert ris.read_bytes().count(b"ER  - \r\n") == 1
     assert logs.read_text(encoding="utf-8").count("# Search log") == 2
+
+    with ScreeningStore.open(screening) as store:
+        store.decide_full_text(first.entry_id, FullTextDecision.INCLUDE)
+    final = tmp_path / "review.csv"
+    args = ["screening", str(screening), "--which", "full_text_include", "--csv", str(final)]
+    assert main(args) == 0
+    out = capsys.readouterr().out
+    assert "Full texts assessed (included or maybe): 1" in out
+    assert "Included in the review: 1" in out
+    assert f"CSV (full_text_include) written to {final}" in out
+    assert final.read_bytes().count(b"\r\n") == 2
 
 
 def _patch_snowball(monkeypatch: pytest.MonkeyPatch, seen: list[httpx.Request]) -> None:

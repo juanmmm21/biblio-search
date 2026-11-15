@@ -15,6 +15,7 @@ from biblio_search.screening import (
     MAX_REASON_LENGTH,
     NO_REASON,
     Decision,
+    FullTextDecision,
     LinkRelation,
     ScreeningError,
     ScreeningStore,
@@ -248,7 +249,7 @@ def test_a_version_1_file_is_upgraded(tmp_path: Path) -> None:
     # Se deja el fichero como lo escribía la versión 0.13.0.
     with sqlite3.connect(path) as connection:
         connection.executescript(
-            "DROP TABLE snowball_links; DROP TABLE snowballed;"
+            "DROP TABLE full_text_decisions; DROP TABLE snowball_links; DROP TABLE snowballed;"
             " ALTER TABLE searches DROP COLUMN kind; PRAGMA user_version = 1;"
         )
     connection.close()
@@ -258,7 +259,7 @@ def test_a_version_1_file_is_upgraded(tmp_path: Path) -> None:
         store.add_snowball(_round([entry.entry_id], [_record("W5")]))
         assert store.summary().snowball_rounds == 1
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 4
     connection.close()
 
 
@@ -270,7 +271,9 @@ def test_a_version_2_file_is_upgraded(tmp_path: Path) -> None:
         store.decide(entry.entry_id, Decision.INCLUDE)
     # Se deja el fichero como lo escribía la versión 0.18.0.
     with sqlite3.connect(path) as connection:
-        connection.executescript("DROP TABLE snowball_links; PRAGMA user_version = 2;")
+        connection.executescript(
+            "DROP TABLE full_text_decisions; DROP TABLE snowball_links; PRAGMA user_version = 2;"
+        )
     connection.close()
     with ScreeningStore.open(path) as store:
         assert store.entries()[0].found_via == ()
@@ -280,7 +283,7 @@ def test_a_version_2_file_is_upgraded(tmp_path: Path) -> None:
             SnowballLink(entry.entry_id, "A study", LinkRelation.CITED_BY),
         )
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 4
     connection.close()
 
 
@@ -315,3 +318,89 @@ def test_snowballing_remembers_where_each_candidate_came_from(store: ScreeningSt
     # Una segunda ronda que vuelve a llegar al mismo candidato no repite el enlace.
     store.add_snowball(run)
     assert len(store.entry(by_id["W7"].entry_id).found_via) == 2
+
+
+def test_a_version_3_file_is_upgraded(tmp_path: Path) -> None:
+    path = tmp_path / "old.sqlite"
+    with ScreeningStore.open(path) as store:
+        store.add_search(_log([_record("1")]))
+        (entry,) = store.entries()
+        store.decide(entry.entry_id, Decision.INCLUDE)
+    with sqlite3.connect(path) as connection:
+        connection.executescript("DROP TABLE full_text_decisions; PRAGMA user_version = 3;")
+    connection.close()
+    with ScreeningStore.open(path) as store:
+        assert [e.entry_id for e in store.entries("full_text")] == [entry.entry_id]
+        store.decide_full_text(entry.entry_id, FullTextDecision.INCLUDE)
+        assert store.summary().full_text_included == 1
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 4
+    connection.close()
+
+
+def _four(store: ScreeningStore) -> tuple[int, int, int, int]:
+    store.add_search(_log([_record(str(n)) for n in range(1, 5)]))
+    first, second, third, fourth = (e.entry_id for e in store.entries())
+    store.decide(first, Decision.INCLUDE)
+    store.decide(second, Decision.MAYBE)
+    store.decide(third, Decision.EXCLUDE, "wrong population")
+    return first, second, third, fourth
+
+
+def test_full_text_stage_takes_included_and_maybe(store: ScreeningStore) -> None:
+    first, second, third, fourth = _four(store)
+    assert [e.entry_id for e in store.entries("full_text")] == [first, second]
+    assert store.entry(first).needs_full_text and not store.entry(fourth).needs_full_text
+    for entry_id in (third, fourth):
+        with pytest.raises(ScreeningError, match="no full text to assess"):
+            store.decide_full_text(entry_id, FullTextDecision.INCLUDE)
+    included = store.decide_full_text(first, FullTextDecision.INCLUDE)
+    assert included.full_text is FullTextDecision.INCLUDE and included.full_text_reason == ""
+    excluded = store.decide_full_text(second, FullTextDecision.EXCLUDE, "  no  control group ")
+    assert excluded.full_text_reason == "no control group"
+    assert store.entries("full_text") == ()
+    assert [e.entry_id for e in store.entries("full_text_include")] == [first]
+    assert [e.entry_id for e in store.entries("full_text_exclude")] == [second]
+    summary = store.summary()
+    assert (summary.full_text_assessed, summary.full_text_pending) == (2, 0)
+    assert (summary.full_text_included, summary.full_text_excluded) == (1, 1)
+    assert summary.full_text_reasons == (("no control group", 1),)
+    flow = render_flow(summary)
+    assert "Full texts assessed (included or maybe): 2" in flow
+    assert "    no control group: 1" in flow and "Included in the review: 1" in flow
+
+
+def test_excluding_a_full_text_needs_a_reason(store: ScreeningStore) -> None:
+    first, *_ = _four(store)
+    with pytest.raises(ScreeningError, match="needs a reason"):
+        store.decide_full_text(first, FullTextDecision.EXCLUDE, "   ")
+    with pytest.raises(ScreeningError, match="at most"):
+        store.decide_full_text(first, FullTextDecision.EXCLUDE, "x" * (MAX_REASON_LENGTH + 1))
+    assert store.entry(first).full_text is None
+
+
+def test_full_text_decision_follows_the_title_and_abstract_one(store: ScreeningStore) -> None:
+    first, second, *_ = _four(store)
+    store.decide_full_text(first, FullTextDecision.INCLUDE)
+    store.decide_full_text(second, FullTextDecision.INCLUDE)
+    # Volver a excluir o a pendiente por título y resumen borra la decisión a texto completo.
+    store.decide(first, Decision.EXCLUDE, "on second thought")
+    store.undecide(second)
+    assert store.entry(first).full_text is None and store.entry(second).full_text is None
+    assert store.summary().full_text_included == 0
+    store.decide(second, Decision.INCLUDE)
+    store.decide_full_text(second, FullTextDecision.EXCLUDE, "no full text available")
+    assert store.undecide_full_text(second).full_text is None
+    assert [e.entry_id for e in store.entries("full_text")] == [second]
+
+
+def test_snowballing_skips_records_excluded_by_full_text(store: ScreeningStore) -> None:
+    first, second, *_ = _four(store)
+    store.decide(second, Decision.INCLUDE)
+    store.decide_full_text(second, FullTextDecision.EXCLUDE, "not a trial")
+    assert [e.entry_id for e in store.to_snowball()] == [first]
+
+
+def test_flow_without_full_text_decisions_has_no_second_stage(store: ScreeningStore) -> None:
+    _four(store)
+    assert "Full texts" not in render_flow(store.summary())

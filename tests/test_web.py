@@ -535,6 +535,44 @@ def test_a_search_is_screened_and_resumed(tmp_path: Path) -> None:
     assert wrong.status_code == 422
 
 
+def test_full_text_stage_through_the_api(tmp_path: Path) -> None:
+    path = tmp_path / "screening.sqlite"
+    with make_client(screening=path) as test_client:
+        search_id = _finished_search(test_client)
+        test_client.post("/api/screening/searches", json={"search_id": search_id})
+        first, second, third = (
+            e["id"] for e in test_client.get("/api/screening").json()["entries"][:3]
+        )
+        test_client.post(f"/api/screening/records/{first}", json={"decision": "include"})
+        test_client.post(f"/api/screening/records/{second}", json={"decision": "maybe"})
+        url = "/api/screening/records/{}/full-text"
+        waiting = test_client.get("/api/screening", params={"which": "full_text"}).json()
+        no_reason = test_client.post(url.format(first), json={"decision": "exclude"})
+        not_eligible = test_client.post(url.format(third), json={"decision": "include"})
+        included = test_client.post(url.format(first), json={"decision": "include"})
+        excluded = test_client.post(
+            url.format(second), json={"decision": "exclude", "reason": "no outcome data"}
+        )
+        review = test_client.get("/api/screening", params={"which": "full_text_include"}).json()
+        ris = test_client.get("/api/screening/export/ris", params={"which": "full_text_include"})
+        undone = test_client.post(url.format(first), json={"decision": None})
+        bad = test_client.post(url.format(first), json={"decision": "maybe"})
+    assert [e["id"] for e in waiting["entries"]] == [first, second]
+    assert all(e["needs_full_text"] and e["full_text"] is None for e in waiting["entries"])
+    assert no_reason.status_code == 409 and "needs a reason" in no_reason.json()["error"]
+    assert not_eligible.status_code == 409 and "no full text" in not_eligible.json()["error"]
+    assert included.json()["entry"]["full_text"] == "include"
+    flow = excluded.json()["flow"]
+    assert (flow["full_text_assessed"], flow["full_text_pending"]) == (2, 0)
+    assert (flow["full_text_included"], flow["full_text_excluded"]) == (1, 1)
+    assert flow["full_text_reasons"] == [{"reason": "no outcome data", "count": 1}]
+    assert excluded.json()["entry"]["full_text_reason"] == "no outcome data"
+    assert [e["id"] for e in review["entries"]] == [first]
+    assert ris.text.count("ER  - ") == 1
+    assert undone.json()["entry"]["full_text"] is None
+    assert bad.status_code == 422
+
+
 def test_screening_needs_a_kept_search_and_a_file(tmp_path: Path) -> None:
     with make_client(screening=tmp_path / "s.sqlite") as test_client:
         missing = test_client.post("/api/screening/searches", json={"search_id": "nope"})
