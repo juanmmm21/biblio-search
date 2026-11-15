@@ -523,6 +523,8 @@ def format_draft(draft: Draft) -> str:
                 for t in condition.terms
             )
             lines.append(f"    {condition.label}: {terms}")
+    if question.arxiv_categories:
+        lines.append(f"  arXiv categories: {', '.join(question.arxiv_categories)}")
     if draft.notes:
         lines += ["", "Changed from what the model proposed:"]
         lines += [f"  {note}" for note in draft.notes]
@@ -535,13 +537,22 @@ async def _draft(args: argparse.Namespace) -> Draft:
         ollama = replace(ollama, model=args.model)
     discipline = Discipline(args.discipline) if args.discipline else None
     question_format = QuestionFormat(args.question_format) if args.question_format else None
-    async with OllamaClient(ollama) as model, EutilsClient(_config(args)) as client:
+    eric_file = EricThesaurusFile.from_env()
+    async with AsyncExitStack() as stack:
+        model = await stack.enter_async_context(OllamaClient(ollama))
+        client = await stack.enter_async_context(EutilsClient(_config(args)))
+        eric: Thesaurus
+        if eric_file is not None:
+            eric = EricFileThesaurus(eric_file)
+        else:
+            eric = EricApiThesaurus(await stack.enter_async_context(EricClient(EricConfig())))
         return await draft_question(
             " ".join(args.words),
             model,
             discipline=discipline,
             question_format=question_format,
             thesaurus=MeshThesaurus(client),
+            eric_thesaurus=eric,
         )
 
 
@@ -564,7 +575,8 @@ def _print_draft(draft: Draft, output: Path | None) -> None:
     if draft.exclusions:
         blocks.append(format_suggested_exclusions(draft))
     if draft.check is not None:
-        equation = DIALECTS[Database.PUBMED].render(draft.question, StrategyOptions())
+        database = CHECK_DATABASES[draft.check.vocabulary]
+        equation = DIALECTS[database].render(draft.question, StrategyOptions())
         # El modelo escribe los encabezados en inglés: el aviso de DeCS no aplica aquí.
         blocks.append(format_check(draft.check, equation, decs=True))
     toml = dump_question(draft.question, StrategyOptions())
