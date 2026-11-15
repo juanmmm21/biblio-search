@@ -990,8 +990,10 @@ Search that level with --evidence-level guidelines (or evidence_level = "guideli
   (editorials, letters, comments, news) are taken out.
 
 `--evidence-level` (or `evidence_level` under `[options]`, or the selector in the web
-interface) limits the PubMed equation to one level. The other databases do not index these
-publication types, so they get every type of record and the equation notes say so. The
+interface) limits the PubMed equation to one level. The CINAHL equation gets the same level
+through its publication type field: `PT "Practice Guidelines"`, `PT "Systematic Review"` or
+`PT "Research"` (CINAHL's type for original research). The other databases do not index
+these publication types, so they get every type of record and the equation notes say so. The
 upper levels of the pyramid (decision support systems and synopses) live in secondary
 resources rather than in bibliographic databases, so they are not counted.
 
@@ -1022,9 +1024,16 @@ $ biblio-search build examples/peer-tutoring-reading.toml --dialect openalex --d
 - **arXiv** holds preprints only, so it needs no filter for them and cannot be limited to
   anything else.
 
-A database that cannot tell the chosen kind apart gets every type of document and the
-equation notes say so. The equations for CINAHL, Scopus and Web of Science carry no
-document type: each has its own limiters for that.
+The equations for the subscription databases carry the type too, in each one's own field:
+
+- **CINAHL**: `PT "Journal Article"`, `PT "Review"`, `PT "Doctoral Dissertation" OR
+  PT "Masters Thesis"` and `PT "Book" OR PT "Book Chapter"`.
+- **Scopus**: `DOCTYPE(ar)`, `DOCTYPE(re)` and `DOCTYPE(bk) OR DOCTYPE(ch)`.
+- **Web of Science**: `DT=(Article)`, `DT=(Review)` and `DT=(Book) OR DT=(Book Chapter)`.
+
+Scopus and the Web of Science Core Collection index neither theses nor preprints, and CINAHL
+has no type for preprints. A database that cannot tell the chosen kind apart gets every
+type of document and the equation notes say so.
 
 ### Question file reference
 
@@ -1045,7 +1054,8 @@ document type: each has its own limiters for that.
 - `[[exclusions]]`: conditions appended with `NOT`, e.g. animal studies.
 - `[options]`: `repeat_controlled_as_free` and `free_text_unindexed_only` (booleans). The
   command line flags can switch them on, never off. `evidence_level` (`guidelines`,
-  `systematic_reviews` or `original_studies`) limits PubMed to one level of evidence;
+  `systematic_reviews` or `original_studies`) limits PubMed and the CINAHL equation to one
+  level of evidence;
   `--evidence-level` replaces it. `document_type` (`article`, `review`, `preprint`,
   `thesis` or `book`) limits every database that tells that kind apart;
   `--document-type` replaces it.
