@@ -300,7 +300,8 @@ The page opens in your browser on a free port of `127.0.0.1` (`--port` to fix it
   where each record gets *Include*, *Maybe* or *Exclude* with an optional reason (reasons you
   already used are offered as you type). The flow diagram on top counts records identified,
   duplicates removed, screened, pending, maybe, excluded by reason and included, and the
-  included records download as RIS or CSV.
+  included records download as RIS or CSV. Included and maybe records then get a full-text
+  decision, where excluding needs a reason, and the diagram adds the full-text stage.
 - **Snowball** from the included records: the *Snowballing* box adds their references and
   the works citing them, found through OpenAlex, as new records to screen. Each candidate
   says which included record it came from and how: in its references, or citing it.
@@ -858,6 +859,30 @@ Search logs written to searches.md
 `--which` picks the records to export (`include` by default, or `maybe`, `exclude`,
 `pending`, `all`), and `--log` writes the log of every search and snowballing round added,
 oldest first.
+
+#### Full-text screening
+
+Title and abstract are the first pass. Every record included or marked *Maybe* there goes on
+to a second one: reading the full text. In the web interface each of those records gets a
+*Full text* row with *Include* and *Exclude*, and excluding at this stage needs a reason,
+as a PRISMA diagram reports the reasons full texts were left out. Sending a record back to
+pending or excluding it by title and abstract clears its full-text decision; a record
+excluded after reading it is no longer followed by snowballing.
+
+Once some full text has a decision, the flow diagram grows a second row:
+
+```console
+Full texts assessed (included or maybe): 64
+  Pending: 9
+  Excluded: 27
+    no control group: 15
+    outcome not measured: 12
+  Included in the review: 28
+```
+
+`--which full_text` lists the records still waiting for their full text,
+`full_text_include` the studies of the review and `full_text_exclude` those left out after
+reading them; the web interface downloads the studies of the review as RIS too.
 
 ### Snowballing from the included records
 
