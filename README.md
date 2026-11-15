@@ -302,7 +302,8 @@ The page opens in your browser on a free port of `127.0.0.1` (`--port` to fix it
   duplicates removed, screened, pending, maybe, excluded by reason and included, and the
   included records download as RIS or CSV.
 - **Snowball** from the included records: the *Snowballing* box adds their references and
-  the works citing them, found through OpenAlex, as new records to screen.
+  the works citing them, found through OpenAlex, as new records to screen. Each candidate
+  says which included record it came from and how: in its references, or citing it.
 - **Import and export** the question as a TOML file, the same format the CLI reads.
 
 ![Drafting from a Spanish sentence: the local model fills in a PICO question in English, the comparison is described but not searched, and every MeSH heading it proposed is confirmed](docs/screenshots/draft.png)
@@ -910,7 +911,8 @@ Records screened: 289
 ```
 
 In the web interface, the screening panel shows a **Snowballing** box as soon as a record is
-included, with the same choices.
+included, with the same choices. Every candidate it adds carries the included records that
+led to it, so you can judge it next to the study that brought it in.
 
 ### Tuning sensitivity and specificity
 
