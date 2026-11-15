@@ -1026,6 +1026,7 @@ function renderFilters(flow) {
 
 function screeningItem(entry) {
   const item = el("li", `record screen-item ${entry.decision || "pending"}`);
+  item.dataset.id = String(entry.id);
   const [first] = entry.sources;
   const title = first ? externalLink("record-title", entry.title || "(no title)", first.url) : el("span", "record-title", entry.title || "(no title)");
   const ids = entry.sources.map((s) => externalLink("hint", `${s.id_label} ${s.id}`, s.url));
@@ -1195,6 +1196,67 @@ function renderScreening(payload) {
   } else {
     list.replaceChildren(...entries.map(screeningItem));
   }
+  $("screening-keys").hidden = !entries.length;
+  markCurrent(false);
+}
+
+// --- Atajos de teclado del cribado ---
+
+// Se recuerda la posición, no el registro: al decidir en «Pending» el registro sale de la
+// lista y el siguiente ocupa su sitio, que es justo el que toca cribar.
+let currentIndex = 0;
+
+function screeningItems() {
+  return [...$("screening-list").querySelectorAll(".screen-item")];
+}
+
+function markCurrent(scroll) {
+  const items = screeningItems();
+  if (!items.length) return null;
+  currentIndex = Math.max(0, Math.min(currentIndex, items.length - 1));
+  items.forEach((item, index) => item.classList.toggle("current", index === currentIndex));
+  const current = items[currentIndex];
+  if (scroll) current.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  return current;
+}
+
+function panelOnScreen() {
+  const box = $("screening-panel").getBoundingClientRect();
+  return box.top < window.innerHeight && box.bottom > 0;
+}
+
+function pressIn(container, selector) {
+  const button = container && container.querySelector(selector);
+  if (button && !button.disabled) button.click();
+}
+
+function handleScreeningKey(event) {
+  const target = event.target;
+  if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) {
+    if (event.key === "Escape") target.blur();
+    return;
+  }
+  if (event.ctrlKey || event.metaKey || event.altKey || !panelOnScreen()) return;
+  const items = screeningItems();
+  if (!items.length) return;
+  const key = event.key.toLowerCase();
+  const current = markCurrent(false);
+  const first = current.querySelector(".screen-actions:not(.full-text)");
+  const fullText = current.querySelector(".screen-actions.full-text");
+  const actions = {
+    j: () => { currentIndex += 1; markCurrent(true); },
+    k: () => { currentIndex -= 1; markCurrent(true); },
+    i: () => pressIn(event.shiftKey ? fullText : first, "button.decide.include"),
+    e: () => pressIn(event.shiftKey ? fullText : first, "button.decide.exclude"),
+    m: () => pressIn(first, "button.decide.maybe"),
+    u: () => pressIn(event.shiftKey ? fullText : first, "button.ghost"),
+    r: () => (event.shiftKey && fullText ? fullText : first).querySelector(".screen-reason").focus(),
+    o: () => pressIn(current, "a.record-title"),
+  };
+  const action = actions[key];
+  if (!action) return;
+  event.preventDefault();
+  action();
 }
 
 // --- Ajuste de sensibilidad y especificidad ---
@@ -1439,6 +1501,14 @@ async function init() {
     e.target.value = "";
   });
   $("snowball-button").addEventListener("click", runSnowball);
+  document.addEventListener("keydown", handleScreeningKey);
+  // Pinchar en un registro lo hace el actual para los atajos.
+  $("screening-list").addEventListener("click", (event) => {
+    const item = event.target instanceof Element ? event.target.closest(".screen-item") : null;
+    if (!item) return;
+    currentIndex = screeningItems().indexOf(item);
+    markCurrent(false);
+  });
   renderForm();
   loadScreening();
   try {
