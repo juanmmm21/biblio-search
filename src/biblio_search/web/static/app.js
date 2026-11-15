@@ -539,6 +539,8 @@ function renderSelection(selection) {
 
 // Códigos de campo de CINAHL, Scopus y Web of Science (van delante del término).
 const FIELD_CODES = /^(?:MH|MM|TI|AB|TITLE-ABS-KEY|TITLE|TS=|TI=)$/;
+// Límites de tipo de publicación o documento de esas mismas bases.
+const LIMIT_CODES = /^(?:PT|DOCTYPE|DT=)$/;
 
 function highlight(equation) {
   const out = el("code", "equation");
@@ -552,6 +554,7 @@ function highlight(equation) {
     else if (afterFilter && /\S/.test(token)) cls = "ftag filter";
     else if (token === "(" || token === ")") cls = "paren";
     else if (FIELD_CODES.test(token)) cls = "ftag free";
+    else if (LIMIT_CODES.test(token)) cls = "ftag filter";
     else if (token.startsWith("[")) {
       const tag = token.slice(1, -1);
       cls = CONTROLLED_TAGS.has(tag) ? "ftag controlled" : tag === "sb" ? "ftag filter" : "ftag free";
