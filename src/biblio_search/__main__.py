@@ -374,7 +374,7 @@ def format_record(position: int, record: ArticleSummary, id_label: str = "PMID")
     return f"{position:>3}. {id_label} {record.record_id} ({year}) {record.title}{journal}{types}"
 
 
-def format_report(database: Database, report: SearchReport) -> str:
+def format_report(database: Database, report: SearchReport, notes: Sequence[str] = ()) -> str:
     result = report.result
     label = DATABASE_LABELS[database]
     lines = [label, f"Equation: {report.equation}"]
@@ -383,6 +383,7 @@ def format_report(database: Database, report: SearchReport) -> str:
     lines.append(f"Results: {result.count}")
     lines += [f"Not found: {term}" for term in result.not_found]
     lines += [f"Warning: {message}" for message in result.warnings]
+    lines += [f"Note: {note}" for note in notes]
     if report.records:
         id_label = RECORD_ID_LABELS[database]
         lines.append("")
@@ -850,7 +851,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
         reports = asyncio.run(_search(question, options, selection.searchable, args))
         log = build_log(question, options, selection, reports, max_records=args.max_records)
-        blocks = [searched_in, *(format_report(db, r) for db, r in reports), format_merge(log)]
+        runs = (format_report(run.database, run.report, run.notes) for run in log.runs)
+        blocks = [searched_in, *runs, format_merge(log)]
         print("\n\n".join(blocks))
         for line in _write_outputs(log, args):
             print(line)
