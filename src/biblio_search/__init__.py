@@ -1,3 +1,3 @@
 """biblio-search: research questions turned into search strategies for PubMed, arXiv, OpenAlex."""
 
-__version__ = "0.20.0"
+__version__ = "0.21.0"
